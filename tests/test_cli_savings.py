@@ -20,7 +20,7 @@ def stats_dir(tmp_path):
     project_name = "test-project"
     project_dir = tmp_path / project_name
     project_dir.mkdir(parents=True)
-    stats = {"queries": 10, "raw_tokens": 5000, "served_tokens": 2000}
+    stats = {"queries": 10, "full_file_tokens": 5000, "raw_tokens": 3000, "served_tokens": 2000}
     (project_dir / "stats.json").write_text(json.dumps(stats))
     return tmp_path, project_name
 
@@ -72,7 +72,7 @@ def test_savings_json_output(runner, stats_dir):
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert data["queries"] == 10
-    assert data["raw_tokens"] == 5000
+    assert data["full_file_tokens"] == 5000
     assert data["served_tokens"] == 2000
     assert data["tokens_saved"] == 3000
     assert data["savings_pct"] == 60
@@ -90,17 +90,17 @@ def test_savings_json_no_data(runner, tmp_path):
             result = runner.invoke(main, ["savings", "--json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
-    assert data["raw_tokens"] == 0
+    assert data["full_file_tokens"] == 0
     assert data["tokens_saved"] == 0
 
 
 def test_savings_all_projects(runner, tmp_path):
-    """--all-projects shows a report for each project with recorded stats."""
-    for name, raw, served in [("proj-a", 8000, 3000), ("proj-b", 2000, 1500)]:
+    """--all shows a report for each project with recorded stats."""
+    for name, full, served in [("proj-a", 8000, 3000), ("proj-b", 2000, 1500)]:
         d = tmp_path / name
         d.mkdir()
         (d / "stats.json").write_text(json.dumps({
-            "queries": 5, "raw_tokens": raw, "served_tokens": served,
+            "queries": 5, "full_file_tokens": full, "raw_tokens": full, "served_tokens": served,
         }))
 
     config = Config(storage_path=str(tmp_path))
@@ -117,12 +117,12 @@ def test_savings_all_projects(runner, tmp_path):
 
 
 def test_savings_all_projects_json(runner, tmp_path):
-    """--all-projects --json returns a list of project entries."""
-    for name, raw, served in [("p1", 4000, 1000), ("p2", 6000, 3000)]:
+    """--all --json returns a list of project entries."""
+    for name, full, served in [("p1", 4000, 1000), ("p2", 6000, 3000)]:
         d = tmp_path / name
         d.mkdir()
         (d / "stats.json").write_text(json.dumps({
-            "queries": 3, "raw_tokens": raw, "served_tokens": served,
+            "queries": 3, "full_file_tokens": full, "raw_tokens": full, "served_tokens": served,
         }))
 
     config = Config(storage_path=str(tmp_path))

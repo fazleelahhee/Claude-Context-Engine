@@ -90,7 +90,7 @@ class ContextEngineMCP:
                 return json.loads(self._stats_path.read_text())
             except (json.JSONDecodeError, OSError):
                 pass
-        return {"queries": 0, "raw_tokens": 0, "served_tokens": 0}
+        return {"queries": 0, "raw_tokens": 0, "served_tokens": 0, "full_file_tokens": 0}
 
     def _save_stats(self) -> None:
         try:
@@ -113,10 +113,12 @@ class ContextEngineMCP:
         except OSError:
             pass
 
-    def _record(self, raw_tokens: int, served_tokens: int) -> None:
+    def _record(self, raw_tokens: int, served_tokens: int, full_file_tokens: int = 0) -> None:
         self._stats["queries"] += 1
         self._stats["raw_tokens"] += raw_tokens
         self._stats["served_tokens"] += served_tokens
+        self._stats.setdefault("full_file_tokens", 0)
+        self._stats["full_file_tokens"] += full_file_tokens
         self._save_stats()
 
     def get_tool_names(self) -> list[str]:
@@ -278,21 +280,39 @@ class ContextEngineMCP:
         results = []
         raw_tokens = 0
         served_tokens = 0
+        seen_files: set[str] = set()
         for chunk in chunks:
             served_text = chunk.compressed_content or chunk.content
             raw_tokens += _count_tokens(chunk.content)
             served_tokens += _count_tokens(served_text)
+            seen_files.add(chunk.file_path)
             results.append(
                 f"[{chunk.file_path}:{chunk.start_line}] "
                 f"(confidence: {chunk.confidence_score:.2f})\n{served_text}"
             )
+        # Estimate what reading the full files would have cost
+        full_file_tokens = self._estimate_full_file_tokens(seen_files)
         body = "\n\n---\n\n".join(results) if results else "No results found."
         if get_output_rules(self._output_level):
             body += (
                 f"\n\n---\n[Respond using {self._output_level} output compression]"
             )
-        self._record(raw_tokens, served_tokens)
+        self._record(raw_tokens, served_tokens, full_file_tokens)
         return [TextContent(type="text", text=body)]
+
+    def _estimate_full_file_tokens(self, file_paths: set[str]) -> int:
+        """Estimate token count if the user had read the full source files."""
+        from pathlib import Path as _Path
+        total = 0
+        project_dir = _Path.cwd()
+        for fp in file_paths:
+            full_path = project_dir / fp
+            if full_path.exists():
+                try:
+                    total += _count_tokens(full_path.read_text(errors="ignore"))
+                except OSError:
+                    pass
+        return total
 
     async def _handle_expand_chunk(self, args):
         chunk_id = (args.get("chunk_id") or "").strip()

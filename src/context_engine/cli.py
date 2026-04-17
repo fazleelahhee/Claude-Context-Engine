@@ -184,17 +184,22 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         return f"${tokens / 1_000_000 * price_per_m:.4f}"
 
     def _print_project(name: str, stats: dict) -> None:
-        raw = stats.get("raw_tokens", 0)
+        full_file = stats.get("full_file_tokens", 0)
         served = stats.get("served_tokens", 0)
         queries = stats.get("queries", 0)
-        saved = raw - served
-        pct = int(saved / raw * 100) if raw > 0 else 0
+
+        # Primary comparison: full files vs CCE served
+        raw = stats.get("raw_tokens", 0)
+        # Use full_file_tokens when available, fall back to raw_tokens for old stats
+        baseline_val = full_file if full_file > 0 else raw
+        saved = baseline_val - served
+        pct = int(saved / baseline_val * 100) if baseline_val > 0 else 0
 
         click.echo(f"  Project:        {name}")
         click.echo(f"  Queries:        {queries:,}")
-        click.echo(f"  Raw tokens:     {raw:,}")
-        click.echo(f"  Served tokens:  {served:,}")
-        click.echo(f"  Tokens saved:   {saved:,} ({pct}%)")
+        click.echo(f"  {'Without CCE:':18s}{baseline_val:>10,} tokens  (full file reads)")
+        click.echo(f"  {'With CCE:':18s}{served:>10,} tokens  (chunked + compressed)")
+        click.echo(f"  {'Tokens saved:':18s}{saved:>10,} tokens  ({pct}%)")
         click.echo()
         click.echo(f"  Cost impact (input tokens):")
         click.echo(f"    {'Model':<18} {'Without CCE':>12} {'With CCE':>12} {'Saved':>12}")
@@ -202,21 +207,24 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         for model, price in [("Haiku", 0.80), ("Sonnet", 3.00), ("Opus", 15.00)]:
             click.echo(
                 f"    {model:<18} "
-                f"{_cost_str(raw, price):>12} "
+                f"{_cost_str(baseline_val, price):>12} "
                 f"{_cost_str(served, price):>12} "
                 f"{_cost_str(saved, price):>12}"
             )
 
     def _json_entry(name: str, stats: dict) -> dict:
+        full_file = stats.get("full_file_tokens", 0)
         raw = stats.get("raw_tokens", 0)
         served = stats.get("served_tokens", 0)
+        baseline = full_file if full_file > 0 else raw
+        saved = baseline - served
         return {
             "project": name,
             "queries": stats.get("queries", 0),
-            "raw_tokens": raw,
+            "full_file_tokens": full_file,
             "served_tokens": served,
-            "tokens_saved": raw - served,
-            "savings_pct": int((raw - served) / raw * 100) if raw > 0 else 0,
+            "tokens_saved": saved,
+            "savings_pct": int(saved / baseline * 100) if baseline > 0 else 0,
         }
 
     # Collect projects
