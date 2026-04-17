@@ -41,10 +41,6 @@ cce init
 
 Done. Claude now searches your indexed codebase instead of re-reading files every session.
 
-<p align="center">
-  <img src="docs/demo.svg" alt="Claude Context Engine Demo" width="800">
-</p>
-
 ---
 
 ## Why?
@@ -67,22 +63,25 @@ Every Claude Code session re-reads your files, re-discovers your architecture, a
 | Command | What It Does |
 |---------|-------------|
 | `cce init` | Index your project and connect to Claude Code (one-time) |
-| `cce index` | Re-index (only changed files) |
-| `cce status` | Show index stats |
-| `cce serve` | Start MCP server for Claude Code |
+| `cce index` | Re-index changed files |
+| `cce index --full` | Force a full re-index |
+| `cce status` | Show index config and token savings summary |
+| `cce savings` | Full token savings report with per-model cost breakdown |
+| `cce savings --all` | Savings report across all indexed projects |
+| `cce savings --json` | Machine-readable savings output |
+| `cce serve` | Start the MCP server (Claude Code does this automatically) |
 
 Once connected, Claude Code gets these tools automatically:
 
 | Tool | Description |
 |------|-------------|
-| `context_search` | Semantic search across your codebase |
+| `context_search` | Semantic search across your indexed codebase |
 | `expand_chunk` | Get the full source for a compressed chunk |
-| `related_context` | Find related code via graph edges (graph traversal not yet wired — returns empty with an explanation) |
-| `session_recall` | Recall past decisions and code-area notes recorded via `record_decision` / `record_code_area` |
+| `session_recall` | Recall past decisions and code-area notes |
 | `record_decision` | Record a decision (with reason) for future recall |
-| `record_code_area` | Record a code area worked on for future recall |
-| `index_status` | Check when the index was last updated, plus token-savings stats |
-| `reindex` | Trigger re-indexing of a file or full project (runs the real indexer synchronously) |
+| `record_code_area` | Record a file and description of work done |
+| `index_status` | Check index status and real token-savings stats |
+| `reindex` | Trigger re-indexing of a file or full project |
 | `set_output_compression` | Adjust response verbosity (off/lite/standard/max). Persisted across restarts. |
 
 ---
@@ -222,6 +221,12 @@ Without engine:     Read payments.py + shipping.py → 45k tokens
 | No tool | 50k | 20k | **$2.25** | |
 | CCE (both compressions, default) | 10k | 7k | **$0.68** | **70%** |
 
+Track your real savings anytime:
+
+```bash
+cce savings
+```
+
 </details>
 
 <details>
@@ -232,6 +237,7 @@ Without Ollama, the engine uses smart truncation (signatures + docstrings). With
 ```bash
 brew install ollama
 ollama pull phi3:mini
+ollama serve
 ```
 
 </details>
@@ -295,6 +301,7 @@ Check out the [good first issues](https://github.com/fazleelahhee/Claude-Context
 - [ ] Persistent session search across projects
 - [x] ~~PyPI package publishing~~
 - [x] ~~GitHub Actions CI pipeline~~
+- [x] ~~PHP support~~
 
 ## License
 
