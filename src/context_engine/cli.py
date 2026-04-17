@@ -183,22 +183,21 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
     _USED = "⛁"
     _FREE = "⛶"
     _COLS = 10
-    _ROWS = 10
 
     def _fmt_k(n: int) -> str:
         return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
 
-    def _grid_rows(used_pct: float) -> list[str]:
-        total = _COLS * _ROWS
+    def _grid_rows(used_pct: float, rows: int) -> list[str]:
+        total = _COLS * rows
         filled = max(0, min(total, round(used_pct * total)))
-        rows = []
-        for r in range(_ROWS):
+        result = []
+        for r in range(rows):
             cells = [
                 _USED if r * _COLS + c < filled else _FREE
                 for c in range(_COLS)
             ]
-            rows.append("     " + " ".join(cells))
-        return rows
+            result.append("     " + " ".join(cells))
+        return result
 
     def _print_project(name: str, stats: dict) -> None:
         full_file = stats.get("full_file_tokens", 0)
@@ -211,8 +210,6 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         saved_pct = int((1 - used_pct) * 100) if baseline > 0 else 0
         used_pct_int = int(used_pct * 100)
 
-        grid = _grid_rows(used_pct)
-
         labels: list[str] = [
             f"  {name} · {queries:,} queries",
             f"  {_fmt_k(served)}/{_fmt_k(baseline)} tokens used ({used_pct_int}%)",
@@ -220,21 +217,11 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
             "  Token savings",
             f"  {_USED} With CCE:    {served:>10,} tokens  ({used_pct_int}%)",
             f"  {_FREE} Tokens saved:{saved:>10,} tokens  ({saved_pct}%)",
-            "",
-            "  Cost impact (input tokens)",
         ]
-        for model, price in [("Haiku 4.5", 0.80), ("Sonnet 4.6", 3.00), ("Opus 4.6", 15.00)]:
-            c_with = served / 1_000_000 * price
-            c_without = baseline / 1_000_000 * price
-            c_saved = c_without - c_with
-            labels.append(
-                f"  {_USED} {model:<11}  ${c_with:.4f}  →  ${c_without:.4f}   save ${c_saved:.4f}"
-            )
 
+        grid = _grid_rows(used_pct, rows=len(labels))
         click.echo()
-        for i in range(max(len(grid), len(labels))):
-            g = grid[i] if i < len(grid) else " " * (5 + _COLS * 2)
-            l = labels[i] if i < len(labels) else ""
+        for g, l in zip(grid, labels):
             click.echo(f"{g}   {l}")
 
     def _json_entry(name: str, stats: dict) -> dict:
