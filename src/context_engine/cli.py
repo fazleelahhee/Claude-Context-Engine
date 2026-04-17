@@ -180,37 +180,62 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         except (KeyError, _json.JSONDecodeError):
             return None
 
-    def _cost_str(tokens: int, price_per_m: float) -> str:
-        return f"${tokens / 1_000_000 * price_per_m:.4f}"
+    _USED = "⛁"
+    _FREE = "⛶"
+    _COLS = 10
+    _ROWS = 10
+
+    def _fmt_k(n: int) -> str:
+        return f"{n / 1000:.1f}k" if n >= 1000 else str(n)
+
+    def _grid_rows(used_pct: float) -> list[str]:
+        total = _COLS * _ROWS
+        filled = max(0, min(total, round(used_pct * total)))
+        rows = []
+        for r in range(_ROWS):
+            cells = [
+                _USED if r * _COLS + c < filled else _FREE
+                for c in range(_COLS)
+            ]
+            rows.append("     " + " ".join(cells))
+        return rows
 
     def _print_project(name: str, stats: dict) -> None:
         full_file = stats.get("full_file_tokens", 0)
         served = stats.get("served_tokens", 0)
         queries = stats.get("queries", 0)
-
-        # Primary comparison: full files vs CCE served
         raw = stats.get("raw_tokens", 0)
-        # Use full_file_tokens when available, fall back to raw_tokens for old stats
-        baseline_val = full_file if full_file > 0 else raw
-        saved = baseline_val - served
-        pct = int(saved / baseline_val * 100) if baseline_val > 0 else 0
+        baseline = full_file if full_file > 0 else raw
+        saved = max(0, baseline - served)
+        used_pct = served / baseline if baseline > 0 else 0
+        saved_pct = int((1 - used_pct) * 100) if baseline > 0 else 0
+        used_pct_int = int(used_pct * 100)
 
-        click.echo(f"  Project:        {name}")
-        click.echo(f"  Queries:        {queries:,}")
-        click.echo(f"  {'Without CCE:':18s}{baseline_val:>10,} tokens  (full file reads)")
-        click.echo(f"  {'With CCE:':18s}{served:>10,} tokens  (chunked + compressed)")
-        click.echo(f"  {'Tokens saved:':18s}{saved:>10,} tokens  ({pct}%)")
-        click.echo()
-        click.echo(f"  Cost impact (input tokens):")
-        click.echo(f"    {'Model':<18} {'Without CCE':>12} {'With CCE':>12} {'Saved':>12}")
-        click.echo(f"    {'-' * 56}")
-        for model, price in [("Haiku", 0.80), ("Sonnet", 3.00), ("Opus", 15.00)]:
-            click.echo(
-                f"    {model:<18} "
-                f"{_cost_str(baseline_val, price):>12} "
-                f"{_cost_str(served, price):>12} "
-                f"{_cost_str(saved, price):>12}"
+        grid = _grid_rows(used_pct)
+
+        labels: list[str] = [
+            f"  {name} · {queries:,} queries",
+            f"  {_fmt_k(served)}/{_fmt_k(baseline)} tokens used ({used_pct_int}%)",
+            "",
+            "  Token savings",
+            f"  {_USED} With CCE:    {served:>10,} tokens  ({used_pct_int}%)",
+            f"  {_FREE} Tokens saved:{saved:>10,} tokens  ({saved_pct}%)",
+            "",
+            "  Cost impact (input tokens)",
+        ]
+        for model, price in [("Haiku 4.5", 0.80), ("Sonnet 4.6", 3.00), ("Opus 4.6", 15.00)]:
+            c_with = served / 1_000_000 * price
+            c_without = baseline / 1_000_000 * price
+            c_saved = c_without - c_with
+            labels.append(
+                f"  {_USED} {model:<11}  ${c_with:.4f}  →  ${c_without:.4f}   save ${c_saved:.4f}"
             )
+
+        click.echo()
+        for i in range(max(len(grid), len(labels))):
+            g = grid[i] if i < len(grid) else " " * (5 + _COLS * 2)
+            l = labels[i] if i < len(labels) else ""
+            click.echo(f"{g}   {l}")
 
     def _json_entry(name: str, stats: dict) -> dict:
         full_file = stats.get("full_file_tokens", 0)
@@ -272,28 +297,23 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         return
 
     # Text output
-    total_raw = sum(s.get("raw_tokens", 0) for _, s in reports)
-    total_served = sum(s.get("served_tokens", 0) for _, s in reports)
-    total_queries = sum(s.get("queries", 0) for _, s in reports)
-    total_saved = total_raw - total_served
-    total_pct = int(total_saved / total_raw * 100) if total_raw > 0 else 0
-
-    click.echo()
-    click.echo("  CCE Token Savings Report")
-    click.echo("  " + "=" * 50)
-    click.echo()
-
     for name, stats in reports:
         _print_project(name, stats)
         if len(reports) > 1:
-            click.echo("  " + "-" * 50)
             click.echo()
+            click.echo("  " + "─" * 52)
 
     if len(reports) > 1:
-        click.echo(f"  TOTAL across {len(reports)} projects:")
-        click.echo(f"    Queries:  {total_queries:,}")
-        click.echo(f"    Saved:    {total_saved:,} tokens ({total_pct}%)")
+        total_raw = sum(s.get("raw_tokens", 0) for _, s in reports)
+        total_served = sum(s.get("served_tokens", 0) for _, s in reports)
+        total_queries = sum(s.get("queries", 0) for _, s in reports)
+        total_saved = total_raw - total_served
+        total_pct = int(total_saved / total_raw * 100) if total_raw > 0 else 0
         click.echo()
+        click.echo(f"  Total across {len(reports)} projects · {total_queries:,} queries")
+        click.echo(f"  {_FREE} Saved: {total_saved:,} tokens ({total_pct}%)")
+
+    click.echo()
 
 
 def savings_shortcut() -> None:

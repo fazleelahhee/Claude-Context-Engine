@@ -58,8 +58,8 @@ def test_savings_with_data(runner, stats_dir):
     storage_path, project_name = stats_dir
     result = _invoke_savings(runner, storage_path, project_name)
     assert result.exit_code == 0
-    assert "CCE Token Savings Report" in result.output
-    assert "5,000" in result.output      # raw_tokens
+    assert "test-project" in result.output
+    assert "5.0k" in result.output       # baseline tokens (fmt_k)
     assert "2,000" in result.output      # served_tokens
     assert "3,000" in result.output      # tokens_saved
     assert "60%" in result.output        # savings_pct
