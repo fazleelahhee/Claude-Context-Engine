@@ -77,11 +77,13 @@ Once connected, Claude Code gets these tools automatically:
 |------|-------------|
 | `context_search` | Semantic search across your codebase |
 | `expand_chunk` | Get the full source for a compressed chunk |
-| `related_context` | Find related code by proximity |
-| `session_recall` | Recall past decisions and discussions |
-| `index_status` | Check when the index was last updated |
-| `reindex` | Trigger re-indexing of a file or full project |
-| `set_output_compression` | Adjust response verbosity (off/lite/standard/max) |
+| `related_context` | Find related code via graph edges (graph traversal not yet wired — returns empty with an explanation) |
+| `session_recall` | Recall past decisions and code-area notes recorded via `record_decision` / `record_code_area` |
+| `record_decision` | Record a decision (with reason) for future recall |
+| `record_code_area` | Record a code area worked on for future recall |
+| `index_status` | Check when the index was last updated, plus token-savings stats |
+| `reindex` | Trigger re-indexing of a file or full project (runs the real indexer synchronously) |
+| `set_output_compression` | Adjust response verbosity (off/lite/standard/max). Persisted across restarts. |
 
 ---
 
@@ -187,7 +189,7 @@ def calculate_shipping(order, warehouse, method="standard"):
     """Calculate shipping cost based on order weight and location."""
 ```
 
-Every chunk is scored: 50% vector similarity + 20% recency. Only high-confidence chunks are returned.
+Every chunk is scored: **50% vector similarity + 30% keyword / file-hint match + 20% recency.** Only chunks meeting the configured confidence threshold (`retrieval.confidence_threshold`, default 0.5) are returned.
 
 ### Progressive Disclosure
 

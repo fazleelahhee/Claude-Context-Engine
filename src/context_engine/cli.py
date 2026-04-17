@@ -11,7 +11,14 @@ from context_engine.config import load_config, PROJECT_CONFIG_NAME
 
 
 def _configure_mcp(project_dir: Path) -> bool:
-    """Write MCP server config to .mcp.json in the project directory. Returns True if written."""
+    """Write MCP server config to .mcp.json in the project directory.
+
+    Returns True if the entry was added. Uses an atomic write so a crash or
+    partial write can't destroy pre-existing MCP server entries in the file.
+    """
+    import os
+    import tempfile
+
     mcp_path = project_dir / ".mcp.json"
     cce_bin = Path(sys.executable).parent / "cce"
     command = str(cce_bin) if cce_bin.exists() else "cce"
@@ -31,7 +38,21 @@ def _configure_mcp(project_dir: Path) -> bool:
         return False  # already configured
 
     servers["context-engine"] = entry
-    mcp_path.write_text(json.dumps(data, indent=2) + "\n")
+
+    # Atomic write: serialise to a tempfile in the same dir, then rename.
+    fd, tmp_name = tempfile.mkstemp(
+        prefix=".mcp.json.", suffix=".tmp", dir=str(project_dir)
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(json.dumps(data, indent=2) + "\n")
+        os.replace(tmp_name, mcp_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
     return True
 
 
@@ -257,87 +278,18 @@ def serve(ctx: click.Context) -> None:
 
 
 async def _run_index(config, project_dir: str, full: bool = False, verbose: bool = False) -> None:
-    """Run indexing pipeline."""
-    import hashlib
-    import time
-    from context_engine.indexer.chunker import Chunker
-    from context_engine.indexer.embedder import Embedder
-    from context_engine.indexer.manifest import Manifest
-    from context_engine.storage.local_backend import LocalBackend
-    from context_engine.models import GraphNode, GraphEdge, NodeType, EdgeType
+    """Run indexing pipeline (thin wrapper over `indexer.pipeline.run_indexing`)."""
+    from context_engine.indexer.pipeline import run_indexing
 
-    project_name = Path(project_dir).name
-    storage_base = Path(config.storage_path) / project_name
-    storage_base.mkdir(parents=True, exist_ok=True)
-    backend = LocalBackend(base_path=str(storage_base))
-
-    chunker = Chunker()
-    embedder = Embedder(model_name=config.embedding_model)
-    manifest = Manifest(manifest_path=storage_base / "manifest.json")
-
-    extensions = {".py", ".js", ".ts", ".jsx", ".tsx", ".md"}
-    language_map = {
-        ".py": "python", ".js": "javascript", ".ts": "typescript",
-        ".jsx": "javascript", ".tsx": "typescript", ".md": "markdown",
-    }
-
-    project_path = Path(project_dir)
-    all_chunks = []
-    all_nodes: list[GraphNode] = []
-    all_edges: list[GraphEdge] = []
-    ignore_set = set(config.indexer_ignore)
-
-    def _walk_files(root: Path):
-        try:
-            entries = sorted(root.iterdir())
-        except PermissionError:
-            return
-        for entry in entries:
-            if entry.name in ignore_set:
-                continue
-            if entry.is_dir():
-                yield from _walk_files(entry)
-            elif entry.is_file() and entry.suffix in extensions:
-                yield entry
-
-    for file_path in _walk_files(project_path):
-        rel_path = str(file_path.relative_to(project_path))
-        content = file_path.read_text(errors="ignore")
-        content_hash = hashlib.sha256(content.encode()).hexdigest()
-        if not full and not manifest.has_changed(rel_path, content_hash):
-            if verbose:
-                click.echo(f"  [skip] {rel_path} (unchanged)")
-            continue
-        language = language_map.get(file_path.suffix, "plaintext")
-        t0 = time.monotonic()
-        chunks = chunker.chunk(content, file_path=rel_path, language=language)
-        elapsed = time.monotonic() - t0
-        if verbose:
-            click.echo(f"  [index] {rel_path} — {len(chunks)} chunks ({elapsed:.3f}s)")
-        file_node = GraphNode(
-            id=f"file_{rel_path}", node_type=NodeType.FILE,
-            name=file_path.name, file_path=rel_path,
-        )
-        all_nodes.append(file_node)
-        for chunk in chunks:
-            node = GraphNode(
-                id=chunk.id,
-                node_type=NodeType.FUNCTION if chunk.chunk_type.value == "function" else NodeType.CLASS,
-                name=chunk.content.split("(")[0].split(":")[-1].strip() if "(" in chunk.content else chunk.id,
-                file_path=rel_path,
-            )
-            all_nodes.append(node)
-            all_edges.append(GraphEdge(
-                source_id=file_node.id, target_id=chunk.id, edge_type=EdgeType.DEFINES,
-            ))
-        all_chunks.extend(chunks)
-        manifest.update(rel_path, content_hash)
-
-    if all_chunks:
-        embedder.embed(all_chunks)
-        await backend.ingest(all_chunks, all_nodes, all_edges)
-    manifest.save()
-    click.echo(f"Indexed {len(all_chunks)} chunks from {len(set(c.file_path for c in all_chunks))} files")
+    log_fn = (lambda msg: click.echo(msg)) if verbose else None
+    result = await run_indexing(config, project_dir, full=full, log_fn=log_fn)
+    for err in result.errors:
+        click.echo(f"Error: {err}", err=True)
+    click.echo(
+        f"Indexed {result.total_chunks} chunks from {len(result.indexed_files)} files"
+        + (f", pruned {len(result.deleted_files)} deleted" if result.deleted_files else "")
+        + (f", skipped {len(result.skipped_files)} non-text" if result.skipped_files else "")
+    )
 
 
 async def _run_serve(config) -> None:

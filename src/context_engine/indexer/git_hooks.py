@@ -1,13 +1,36 @@
 """Git hook installer and handler for triggering re-indexing."""
 import os
+import shutil
 import stat
+import sys
 from pathlib import Path
 
 HOOK_MARKER = "# claude-context-engine hook"
-HOOK_SCRIPT = f"""{HOOK_MARKER}
-claude-context-engine index --changed-only 2>/dev/null &
-"""
 HOOK_NAMES = ["post-commit", "post-checkout", "post-merge"]
+
+
+def _resolve_cce_binary() -> str:
+    """Find an absolute path to the `cce` launcher.
+
+    Preferring an absolute path means the git hook keeps working when the user
+    runs `git commit` from a shell that doesn't pick up the same PATH as the one
+    used to install the engine (e.g. different login shell, GUI git client).
+    """
+    candidate = Path(sys.executable).parent / "cce"
+    if candidate.exists():
+        return str(candidate)
+    which = shutil.which("cce") or shutil.which("claude-context-engine")
+    if which:
+        return which
+    # Last-resort: rely on PATH at hook-run time.
+    return "cce"
+
+
+def _hook_script() -> str:
+    bin_path = _resolve_cce_binary()
+    return f"""{HOOK_MARKER}
+{bin_path} index --changed-only >/dev/null 2>&1 &
+"""
 
 
 def install_hooks(project_dir: str) -> list[str]:
@@ -23,13 +46,14 @@ def install_hooks(project_dir: str) -> list[str]:
 
 
 def _install_single_hook(hook_path: Path) -> None:
+    script = _hook_script()
     if hook_path.exists():
         existing = hook_path.read_text()
         if HOOK_MARKER in existing:
             return
-        new_content = existing.rstrip() + "\n\n" + HOOK_SCRIPT
+        new_content = existing.rstrip() + "\n\n" + script
     else:
-        new_content = "#!/bin/sh\n\n" + HOOK_SCRIPT
+        new_content = "#!/bin/sh\n\n" + script
     hook_path.write_text(new_content)
     hook_path.chmod(hook_path.stat().st_mode | stat.S_IEXEC)
 

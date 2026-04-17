@@ -1,23 +1,48 @@
 """MCP server exposing context engine tools to Claude Code."""
 import json
+import logging
 from pathlib import Path
 
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 
-from context_engine.compression.output_rules import get_output_rules, get_level_description, LEVELS
+from context_engine.compression.output_rules import (
+    get_output_rules,
+    get_level_description,
+    LEVELS,
+)
+from context_engine.integration.bootstrap import BootstrapBuilder
+from context_engine.integration.session_capture import SessionCapture
+
+log = logging.getLogger(__name__)
 
 _CHARS_PER_TOKEN = 4
+_MAX_QUERY_CHARS = 10_000
+_MAX_TOP_K = 100
 
 
 def _count_tokens(text: str) -> int:
     return max(1, len(text) // _CHARS_PER_TOKEN)
 
 
+def _clamp_top_k(value, default: int = 10) -> int:
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(1, min(n, _MAX_TOP_K))
+
+
 class ContextEngineMCP:
     TOOL_NAMES = [
-        "context_search", "expand_chunk", "related_context",
-        "session_recall", "index_status", "reindex",
+        "context_search",
+        "expand_chunk",
+        "related_context",
+        "session_recall",
+        "record_decision",
+        "record_code_area",
+        "index_status",
+        "reindex",
         "set_output_compression",
     ]
 
@@ -27,15 +52,37 @@ class ContextEngineMCP:
         self._compressor = compressor
         self._embedder = embedder
         self._config = config
-        self._output_level = config.output_compression
         self._server = Server("claude-context-engine")
 
         project_name = Path.cwd().name
-        self._stats_path = Path(config.storage_path) / project_name / "stats.json"
+        self._project_name = project_name
+        self._project_dir = str(Path.cwd())
+        self._storage_base = Path(config.storage_path) / project_name
+        self._storage_base.mkdir(parents=True, exist_ok=True)
+        self._stats_path = self._storage_base / "stats.json"
+        self._state_path = self._storage_base / "state.json"
         self._stats = self._load_stats()
+
+        # `state.json` overrides the config default so `set_output_compression`
+        # survives server restarts.
+        persisted_state = self._load_state()
+        self._output_level = persisted_state.get(
+            "output_level", config.output_compression
+        )
+
+        # Session capture — persists decisions and code-area notes across runs.
+        self._session_capture = SessionCapture(
+            sessions_dir=str(self._storage_base / "sessions")
+        )
+        self._session_id = self._session_capture.start_session(project_name)
+
+        # Bootstrap builder — used by the `context-engine-init` prompt handler.
+        self._bootstrap = BootstrapBuilder(max_tokens=config.bootstrap_max_tokens)
 
         self._register_tools()
         self._register_prompts()
+
+    # ── state / stats persistence ───────────────────────────────────────────
 
     def _load_stats(self) -> dict:
         if self._stats_path.exists():
@@ -51,6 +98,21 @@ class ContextEngineMCP:
         except OSError:
             pass
 
+    def _load_state(self) -> dict:
+        if self._state_path.exists():
+            try:
+                return json.loads(self._state_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
+    def _save_state(self) -> None:
+        try:
+            state = {"output_level": self._output_level}
+            self._state_path.write_text(json.dumps(state))
+        except OSError:
+            pass
+
     def _record(self, raw_tokens: int, served_tokens: int) -> None:
         self._stats["queries"] += 1
         self._stats["raw_tokens"] += raw_tokens
@@ -59,6 +121,8 @@ class ContextEngineMCP:
 
     def get_tool_names(self) -> list[str]:
         return list(self.TOOL_NAMES)
+
+    # ── tool registration ───────────────────────────────────────────────────
 
     def _register_tools(self) -> None:
         @self._server.list_tools()
@@ -96,11 +160,35 @@ class ContextEngineMCP:
                 ),
                 Tool(
                     name="session_recall",
-                    description="Recall past discussions and decisions about a topic",
+                    description="Recall past decisions and code-area notes recorded in this or prior sessions",
                     inputSchema={
                         "type": "object",
                         "properties": {"topic": {"type": "string"}},
                         "required": ["topic"],
+                    },
+                ),
+                Tool(
+                    name="record_decision",
+                    description="Record a decision (with reason) for future session_recall",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "decision": {"type": "string"},
+                            "reason": {"type": "string"},
+                        },
+                        "required": ["decision", "reason"],
+                    },
+                ),
+                Tool(
+                    name="record_code_area",
+                    description="Record a code area (file + description) worked on, for future session_recall",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {
+                            "file_path": {"type": "string"},
+                            "description": {"type": "string"},
+                        },
+                        "required": ["file_path", "description"],
                     },
                 ),
                 Tool(
@@ -118,14 +206,20 @@ class ContextEngineMCP:
                 ),
                 Tool(
                     name="set_output_compression",
-                    description="Set output compression level to reduce response token cost. Levels: off, lite, standard, max",
+                    description=(
+                        "Set output compression level to reduce response token cost. "
+                        "Levels: off, lite, standard, max"
+                    ),
                     inputSchema={
                         "type": "object",
                         "properties": {
                             "level": {
                                 "type": "string",
                                 "enum": list(LEVELS),
-                                "description": "off=normal, lite=no filler, standard=fragments ~65% savings, max=telegraphic ~75% savings",
+                                "description": (
+                                    "off=normal, lite=no filler, standard=fragments "
+                                    "~65% savings, max=telegraphic ~75% savings"
+                                ),
                             },
                         },
                         "required": ["level"],
@@ -135,24 +229,51 @@ class ContextEngineMCP:
 
         @self._server.call_tool()
         async def call_tool(name: str, arguments: dict):
-            if name == "context_search":
-                return await self._handle_context_search(arguments)
-            elif name == "expand_chunk":
-                return await self._handle_expand_chunk(arguments)
-            elif name == "related_context":
-                return await self._handle_related_context(arguments)
-            elif name == "session_recall":
-                return await self._handle_session_recall(arguments)
-            elif name == "index_status":
-                return await self._handle_index_status()
-            elif name == "reindex":
-                return await self._handle_reindex(arguments)
-            elif name == "set_output_compression":
-                return self._handle_set_output_compression(arguments)
-            return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            arguments = arguments or {}
+            try:
+                if name == "context_search":
+                    return await self._handle_context_search(arguments)
+                elif name == "expand_chunk":
+                    return await self._handle_expand_chunk(arguments)
+                elif name == "related_context":
+                    return await self._handle_related_context(arguments)
+                elif name == "session_recall":
+                    return await self._handle_session_recall(arguments)
+                elif name == "record_decision":
+                    return self._handle_record_decision(arguments)
+                elif name == "record_code_area":
+                    return self._handle_record_code_area(arguments)
+                elif name == "index_status":
+                    return await self._handle_index_status()
+                elif name == "reindex":
+                    return await self._handle_reindex(arguments)
+                elif name == "set_output_compression":
+                    return self._handle_set_output_compression(arguments)
+                return [TextContent(type="text", text=f"Unknown tool: {name}")]
+            except Exception as exc:  # pragma: no cover - defensive
+                log.exception("MCP tool %s failed", name)
+                return [TextContent(type="text", text=f"Tool {name} failed: {exc}")]
+
+    # ── tool handlers ───────────────────────────────────────────────────────
 
     async def _handle_context_search(self, args):
-        chunks = await self._retriever.retrieve(args["query"], top_k=args.get("top_k", 10))
+        query = (args.get("query") or "").strip()
+        if not query:
+            return [TextContent(type="text", text="Query cannot be empty.")]
+        if len(query) > _MAX_QUERY_CHARS:
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Query too long (max {_MAX_QUERY_CHARS} characters).",
+                )
+            ]
+        top_k = _clamp_top_k(args.get("top_k", 10))
+
+        chunks = await self._retriever.retrieve(
+            query,
+            top_k=top_k,
+            confidence_threshold=self._config.retrieval_confidence_threshold,
+        )
         results = []
         raw_tokens = 0
         served_tokens = 0
@@ -161,17 +282,22 @@ class ContextEngineMCP:
             raw_tokens += _count_tokens(chunk.content)
             served_tokens += _count_tokens(served_text)
             results.append(
-                f"[{chunk.file_path}:{chunk.start_line}] (confidence: {chunk.confidence_score:.2f})\n{served_text}"
+                f"[{chunk.file_path}:{chunk.start_line}] "
+                f"(confidence: {chunk.confidence_score:.2f})\n{served_text}"
             )
         body = "\n\n---\n\n".join(results) if results else "No results found."
-        rules = get_output_rules(self._output_level)
-        if rules:
-            body += f"\n\n---\n[Respond using {self._output_level} output compression]"
+        if get_output_rules(self._output_level):
+            body += (
+                f"\n\n---\n[Respond using {self._output_level} output compression]"
+            )
         self._record(raw_tokens, served_tokens)
         return [TextContent(type="text", text=body)]
 
     async def _handle_expand_chunk(self, args):
-        chunk = await self._backend.get_chunk_by_id(args["chunk_id"])
+        chunk_id = (args.get("chunk_id") or "").strip()
+        if not chunk_id:
+            return [TextContent(type="text", text="chunk_id is required.")]
+        chunk = await self._backend.get_chunk_by_id(chunk_id)
         if chunk is None:
             return [TextContent(type="text", text="Chunk not found.")]
         tokens = _count_tokens(chunk.content)
@@ -179,27 +305,80 @@ class ContextEngineMCP:
         return [
             TextContent(
                 type="text",
-                text=f"[{chunk.file_path}:{chunk.start_line}-{chunk.end_line}]\n{chunk.content}",
+                text=(
+                    f"[{chunk.file_path}:{chunk.start_line}-{chunk.end_line}]\n"
+                    f"{chunk.content}"
+                ),
             )
         ]
 
     async def _handle_related_context(self, args):
-        neighbors = await self._backend.graph_neighbors(args["chunk_id"])
+        chunk_id = (args.get("chunk_id") or "").strip()
+        if not chunk_id:
+            return [TextContent(type="text", text="chunk_id is required.")]
+        neighbors = await self._backend.graph_neighbors(chunk_id)
         if not neighbors:
-            return [TextContent(type="text", text="No related context found.")]
-        lines = [f"- {n.node_type.value}: {n.name} ({n.file_path})" for n in neighbors]
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        "No related context found. (Graph traversal is not "
+                        "currently wired — related code will return empty. "
+                        "Use `context_search` for semantic lookups instead.)"
+                    ),
+                )
+            ]
+        lines = [
+            f"- {n.node_type.value}: {n.name} ({n.file_path})" for n in neighbors
+        ]
         return [TextContent(type="text", text="\n".join(lines))]
 
     async def _handle_session_recall(self, args):
-        chunks = await self._retriever.retrieve(args["topic"], top_k=5)
-        session_chunks = [c for c in chunks if c.chunk_type.value in ("session", "decision")]
-        if not session_chunks:
-            session_chunks = chunks[:3]
-        results = [c.compressed_content or c.content for c in session_chunks]
+        topic = (args.get("topic") or "").strip()
+        if not topic:
+            return [TextContent(type="text", text="topic is required.")]
+        matches = self._search_sessions(topic)
+        if not matches:
+            return [
+                TextContent(
+                    type="text",
+                    text=(
+                        f"No recorded decisions or code-area notes matching '{topic}'. "
+                        "Use record_decision or record_code_area to capture notes "
+                        "during the session."
+                    ),
+                )
+            ]
+        body = "\n".join(f"- {m}" for m in matches[:20])
+        return [TextContent(type="text", text=body)]
+
+    def _handle_record_decision(self, args):
+        decision = (args.get("decision") or "").strip()
+        reason = (args.get("reason") or "").strip()
+        if not decision:
+            return [TextContent(type="text", text="decision is required.")]
+        self._session_capture.record_decision(self._session_id, decision, reason)
+        self._persist_current_session()
         return [
             TextContent(
                 type="text",
-                text="\n\n".join(results) if results else "No session history found.",
+                text=f"✓ Decision recorded: {decision}",
+            )
+        ]
+
+    def _handle_record_code_area(self, args):
+        file_path = (args.get("file_path") or "").strip()
+        description = (args.get("description") or "").strip()
+        if not file_path:
+            return [TextContent(type="text", text="file_path is required.")]
+        self._session_capture.record_code_area(
+            self._session_id, file_path, description
+        )
+        self._persist_current_session()
+        return [
+            TextContent(
+                type="text",
+                text=f"✓ Code area noted: {file_path} — {description}",
             )
         ]
 
@@ -212,7 +391,8 @@ class ContextEngineMCP:
 
         status_parts = [
             "Index status: operational",
-            f"Output compression: {self._output_level} — {get_level_description(self._output_level)}",
+            f"Output compression: {self._output_level} — "
+            f"{get_level_description(self._output_level)}",
         ]
         if queries > 0:
             status_parts.append(
@@ -224,24 +404,121 @@ class ContextEngineMCP:
         return [TextContent(type="text", text="\n".join(status_parts))]
 
     async def _handle_reindex(self, args):
-        path = args.get("path")
-        if path:
-            return [TextContent(type="text", text=f"Re-indexing triggered for: {path}")]
-        return [TextContent(type="text", text="Full re-index triggered.")]
+        """Run the real indexing pipeline, either project-wide or on a path."""
+        from context_engine.indexer.pipeline import run_indexing
+
+        path = (args.get("path") or "").strip() or None
+        try:
+            result = await run_indexing(
+                self._config,
+                self._project_dir,
+                full=False,
+                target_path=path,
+            )
+        except Exception as exc:
+            log.exception("reindex failed")
+            return [TextContent(type="text", text=f"✗ Re-index failed: {exc}")]
+
+        lines = [
+            "✓ Re-index complete",
+            f"  Indexed: {len(result.indexed_files)} file(s), {result.total_chunks} chunk(s)",
+        ]
+        if result.deleted_files:
+            lines.append(f"  Pruned stale: {len(result.deleted_files)}")
+        if result.skipped_files:
+            lines.append(f"  Skipped (binary/unreadable): {len(result.skipped_files)}")
+        if result.errors:
+            lines.append(f"  Errors: {len(result.errors)}")
+            lines.extend(f"    - {e}" for e in result.errors[:5])
+        return [TextContent(type="text", text="\n".join(lines))]
 
     def _handle_set_output_compression(self, args):
-        level = args.get("level", "standard")
+        level = (args.get("level") or "standard").strip()
         if level not in LEVELS:
-            return [TextContent(type="text", text=f"Invalid level: {level}. Use: {', '.join(LEVELS)}")]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Invalid level: {level}. Use: {', '.join(LEVELS)}",
+                )
+            ]
         self._output_level = level
+        self._save_state()  # persist so restarts keep the user's choice
         desc = get_level_description(level)
         rules = get_output_rules(level)
         if rules:
-            return [TextContent(type="text", text=f"Output compression set to: {level}\n{desc}\n\n{rules}")]
-        return [TextContent(type="text", text=f"Output compression disabled. Claude will respond normally.")]
+            return [
+                TextContent(
+                    type="text",
+                    text=f"Output compression set to: {level}\n{desc}\n\n{rules}",
+                )
+            ]
+        return [
+            TextContent(
+                type="text",
+                text="Output compression disabled. Claude will respond normally.",
+            )
+        ]
+
+    # ── session helpers ─────────────────────────────────────────────────────
+
+    def _persist_current_session(self) -> None:
+        """Flush the in-memory current session to disk after every record.
+
+        `SessionCapture.end_session` normally flushes on shutdown, but the MCP
+        process doesn't always get a clean shutdown signal, so we persist after
+        each record to avoid data loss.
+        """
+        sessions_dir = Path(self._session_capture._sessions_dir)  # noqa: SLF001
+        session = self._session_capture._active.get(self._session_id)  # noqa: SLF001
+        if not session:
+            return
+        try:
+            sessions_dir.mkdir(parents=True, exist_ok=True)
+            file_path = sessions_dir / f"{self._session_id}.json"
+            file_path.write_text(json.dumps(session, indent=2))
+        except OSError:
+            log.warning("Failed to persist session %s", self._session_id)
+
+    def _search_sessions(self, topic: str) -> list[str]:
+        """Search decisions and code-area notes across all sessions."""
+        needle = topic.lower()
+        matches: list[str] = []
+        # Current in-memory session (may not yet be flushed).
+        current = self._session_capture._active.get(self._session_id)  # noqa: SLF001
+        sessions: list[dict] = []
+        if current:
+            sessions.append(current)
+        sessions.extend(self._session_capture.load_recent_sessions(limit=20))
+
+        seen: set[str] = set()
+        for session in sessions:
+            for decision in session.get("decisions", []):
+                text = f"[decision] {decision.get('decision', '')} — {decision.get('reason', '')}"
+                if needle in text.lower() and text not in seen:
+                    seen.add(text)
+                    matches.append(text)
+            for area in session.get("code_areas", []):
+                text = (
+                    f"[code_area] {area.get('file_path', '')} — "
+                    f"{area.get('description', '')}"
+                )
+                if needle in text.lower() and text not in seen:
+                    seen.add(text)
+                    matches.append(text)
+            for question in session.get("questions", []):
+                text = (
+                    f"[q&a] {question.get('question', '')} → "
+                    f"{question.get('answer', '')}"
+                )
+                if needle in text.lower() and text not in seen:
+                    seen.add(text)
+                    matches.append(text)
+        return matches
+
+    # ── MCP prompts ─────────────────────────────────────────────────────────
 
     def _register_prompts(self):
-        """Register MCP prompts that inject output compression rules at session start."""
+        """Register MCP prompts for session-start context injection."""
         from mcp.types import Prompt, PromptMessage, PromptArgument
 
         @self._server.list_prompts()
@@ -249,7 +526,10 @@ class ContextEngineMCP:
             return [
                 Prompt(
                     name="context-engine-init",
-                    description="Initialize context engine with output compression rules",
+                    description=(
+                        "Initialize context engine with project overview and "
+                        "output compression rules"
+                    ),
                     arguments=[
                         PromptArgument(
                             name="output_level",
@@ -265,8 +545,23 @@ class ContextEngineMCP:
             if name != "context-engine-init":
                 return None
             level = (arguments or {}).get("output_level", self._output_level)
+
+            # Compose a real project bootstrap: fetch high-signal chunks and
+            # hand them to BootstrapBuilder rather than returning a static
+            # placeholder.
+            try:
+                chunks = await self._retriever.retrieve(
+                    "architecture overview", top_k=10
+                )
+            except Exception:
+                chunks = []
+            bootstrap_text = self._bootstrap.build(
+                project_name=self._project_name,
+                chunks=chunks,
+            )
+
             rules = get_output_rules(level)
-            content = "Context engine active."
+            content = bootstrap_text
             if rules:
                 content += f"\n\n{rules}"
             return {

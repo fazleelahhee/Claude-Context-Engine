@@ -60,6 +60,22 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+_EXPECTED_TYPES: dict[str, type | tuple[type, ...]] = {
+    "compression_level": str,
+    "compression_model": str,
+    "output_compression": str,
+    "embedding_model": str,
+    "retrieval_confidence_threshold": (int, float),
+    "retrieval_top_k": int,
+    "bootstrap_max_tokens": int,
+    "indexer_watch": bool,
+    "indexer_debounce_ms": int,
+    "indexer_ignore": list,
+    "indexer_languages": list,
+    "storage_path": str,
+}
+
+
 def _apply_dict_to_config(config: Config, data: dict) -> None:
     mapping = {
         ("compression", "level"): "compression_level",
@@ -76,8 +92,21 @@ def _apply_dict_to_config(config: Config, data: dict) -> None:
         ("storage", "path"): "storage_path",
     }
     for (section, key), attr in mapping.items():
-        if section in data and key in data[section]:
-            setattr(config, attr, data[section][key])
+        if section in data and isinstance(data[section], dict) and key in data[section]:
+            value = data[section][key]
+            expected = _EXPECTED_TYPES.get(attr)
+            if expected is not None and not isinstance(value, expected):
+                # `bool` is a subclass of `int`, so guard against that edge case.
+                if expected is int and isinstance(value, bool):
+                    raise ValueError(
+                        f"Config {section}.{key} must be int, got bool ({value!r})"
+                    )
+                raise ValueError(
+                    f"Config {section}.{key} must be "
+                    f"{getattr(expected, '__name__', expected)}, "
+                    f"got {type(value).__name__} ({value!r})"
+                )
+            setattr(config, attr, value)
 
 
 def load_config(

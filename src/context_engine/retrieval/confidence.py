@@ -1,20 +1,40 @@
-"""Confidence scoring for retrieved chunks."""
+"""Confidence scoring for retrieved chunks.
+
+The score is a weighted sum of three factors, each normalised to [0, 1]:
+
+- vector similarity: 1 - (cosine distance from query embedding).
+- keyword / file-hint match: a lightweight query-parser bonus when the chunk's
+  file path or content hits the parsed query intent. Replaces what used to be
+  labelled "graph hops" before the graph store was removed.
+- recency: exponential decay based on the chunk's `modified_ts` metadata.
+
+The weights live here as module constants so they're easy to find and tune.
+"""
 import time
 from context_engine.models import Chunk
 
 _VECTOR_WEIGHT = 0.5
-_GRAPH_WEIGHT = 0.3
+_KEYWORD_WEIGHT = 0.3
 _RECENCY_WEIGHT = 0.2
-_MAX_GRAPH_HOPS = 5
+_MAX_KEYWORD_DISTANCE = 5
 _RECENCY_HALF_LIFE = 7 * 24 * 3600  # 1 week
 
 
 class ConfidenceScorer:
-    def score(self, chunk: Chunk, vector_distance: float, graph_hops: int) -> float:
+    def score(
+        self,
+        chunk: Chunk,
+        vector_distance: float,
+        keyword_distance: int,
+    ) -> float:
         vector_score = max(0.0, 1.0 - vector_distance)
-        graph_score = max(0.0, 1.0 - (graph_hops / _MAX_GRAPH_HOPS))
+        keyword_score = max(0.0, 1.0 - (keyword_distance / _MAX_KEYWORD_DISTANCE))
         recency_score = self._recency_score(chunk)
-        combined = (_VECTOR_WEIGHT * vector_score + _GRAPH_WEIGHT * graph_score + _RECENCY_WEIGHT * recency_score)
+        combined = (
+            _VECTOR_WEIGHT * vector_score
+            + _KEYWORD_WEIGHT * keyword_score
+            + _RECENCY_WEIGHT * recency_score
+        )
         return min(1.0, max(0.0, combined))
 
     def _recency_score(self, chunk: Chunk) -> float:
