@@ -39,9 +39,10 @@ class HybridRetriever:
             # metadata; fall back to 0.0 (treat as perfect) so the scorer doesn't
             # silently collapse when a backend doesn't provide distances.
             distance = chunk.metadata.get("_distance", 0.0)
-            # LanceDB default is L2 distance (unbounded upper); clamp to [0, 1]
-            # for the scorer which expects a normalised similarity delta.
-            normalised_distance = min(max(distance, 0.0), 1.0)
+            # LanceDB returns L2 distance (range ~0-4 for normalised embeddings).
+            # Scale to [0, 1] where 0=identical, 1=unrelated. L2 of 2.0 means
+            # orthogonal vectors; anything beyond is anti-correlated.
+            normalised_distance = min(max(distance / 2.0, 0.0), 1.0)
             keyword_distance = self._estimate_keyword_distance(chunk, parsed)
             score = self._scorer.score(
                 chunk,

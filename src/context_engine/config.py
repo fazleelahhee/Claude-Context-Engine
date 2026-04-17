@@ -24,7 +24,7 @@ class Config:
     embedding_model: str = "all-MiniLM-L6-v2"
 
     # Retrieval
-    retrieval_confidence_threshold: float = 0.5
+    retrieval_confidence_threshold: float = 0.2
     retrieval_top_k: int = 20
     bootstrap_max_tokens: int = 10000
 

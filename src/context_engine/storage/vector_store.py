@@ -31,8 +31,11 @@ class VectorStore:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
         self._db = lancedb.connect(db_path)
-        self._table = None
         self._lock = RLock()
+        try:
+            self._table = self._db.open_table(TABLE_NAME)
+        except Exception:
+            self._table = None
 
     def _ensure_table(self, vector_dim: int) -> None:
         with self._lock:
