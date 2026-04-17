@@ -45,15 +45,26 @@ class Embedder:
                 model_name,
             )
         try:
-            # Suppress the harmless "UNEXPECTED key: embeddings.position_ids" warning
-            # that older BERT checkpoints trigger in newer transformers versions.
-            import transformers.modeling_utils as _mu
-            _prior = _mu.logger.level
-            _mu.logger.setLevel(logging.ERROR)
+            # Silence noisy-but-harmless warnings from the HF/transformers stack
+            # during model load:
+            #  - "UNEXPECTED key: embeddings.position_ids" (older BERT checkpoints)
+            #  - "layers were not sharded" (safetensors info message)
+            #  - "unauthenticated requests to HF Hub" (no token set)
+            _noisy_loggers = [
+                "transformers.modeling_utils",
+                "transformers",
+                "huggingface_hub.file_download",
+                "huggingface_hub",
+                "safetensors",
+            ]
+            _prior_levels = {n: logging.getLogger(n).level for n in _noisy_loggers}
+            for name in _noisy_loggers:
+                logging.getLogger(name).setLevel(logging.ERROR)
             try:
                 self._model = SentenceTransformer(model_name)
             finally:
-                _mu.logger.setLevel(_prior)
+                for name, level in _prior_levels.items():
+                    logging.getLogger(name).setLevel(level)
         except Exception as exc:
             # Surface a helpful error instead of hanging or crashing deep inside
             # the sentence-transformers stack.
