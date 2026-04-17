@@ -29,3 +29,4 @@ Thumbs.db
 *.db
 .claude-context-engine/
 *.lance/
+docs/superpowers/
