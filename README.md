@@ -92,7 +92,20 @@ Your Code
 
 ## Installation
 
-### Prerequisites
+### Homebrew (macOS)
+
+```bash
+brew tap fazleelahhee/tap
+brew install claude-context-engine
+```
+
+### PyPI (all platforms)
+
+```bash
+pip install claude-context-engine
+```
+
+### Prerequisites (if installing from source)
 
 - Python 3.11+
 - [CMake](https://cmake.org/) (for building Kuzu graph database)
@@ -103,12 +116,6 @@ brew install cmake
 
 # Ubuntu/Debian
 sudo apt install cmake
-```
-
-### Install from PyPI (recommended)
-
-```bash
-pip install claude-context-engine
 ```
 
 ### Install from Source
