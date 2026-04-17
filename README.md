@@ -1,12 +1,29 @@
-# Claude Context Engine
+<p align="center">
+  <img src="docs/logo.svg" alt="Claude Context Engine" width="180">
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![MCP Compatible](https://img.shields.io/badge/MCP-compatible-green.svg)](https://modelcontextprotocol.io)
-[![GitHub stars](https://img.shields.io/github/stars/fazleelahhee/Claude-Context-Engine?style=social)](https://github.com/fazleelahhee/Claude-Context-Engine)
-[![GitHub forks](https://img.shields.io/github/forks/fazleelahhee/Claude-Context-Engine?style=social)](https://github.com/fazleelahhee/Claude-Context-Engine/fork)
-[![GitHub issues](https://img.shields.io/github/issues/fazleelahhee/Claude-Context-Engine)](https://github.com/fazleelahhee/Claude-Context-Engine/issues)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/fazleelahhee/Claude-Context-Engine/pulls)
+<h1 align="center">Claude Context Engine</h1>
+
+<p align="center">
+  <strong>Index your codebase. Compress context. Cut token costs by 70%.</strong>
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/claude-context-engine/"><img src="https://img.shields.io/pypi/v/claude-context-engine?color=blue" alt="PyPI"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11+-blue.svg" alt="Python 3.11+"></a>
+  <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-compatible-green.svg" alt="MCP Compatible"></a>
+  <a href="https://github.com/fazleelahhee/Claude-Context-Engine"><img src="https://img.shields.io/github/stars/fazleelahhee/Claude-Context-Engine?style=social" alt="GitHub stars"></a>
+  <a href="https://github.com/fazleelahhee/Claude-Context-Engine/fork"><img src="https://img.shields.io/github/forks/fazleelahhee/Claude-Context-Engine?style=social" alt="GitHub forks"></a>
+  <a href="https://github.com/fazleelahhee/Claude-Context-Engine/issues"><img src="https://img.shields.io/github/issues/fazleelahhee/Claude-Context-Engine" alt="GitHub issues"></a>
+  <a href="https://github.com/fazleelahhee/Claude-Context-Engine/pulls"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome"></a>
+</p>
+
+<p align="center">
+  <code>pip install claude-context-engine</code>
+</p>
+
+---
 
 A local context indexing system for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) that indexes your codebase, compresses context, and serves it via MCP — so Claude starts every session already knowing your project.
 
@@ -123,7 +140,7 @@ ollama pull phi3:mini
 
 ```bash
 cd /path/to/your/project
-claude-context-engine init
+cce init
 ```
 
 This will:
@@ -139,7 +156,7 @@ Add the MCP server to your project's `.mcp.json`:
 {
   "mcpServers": {
     "context-engine": {
-      "command": "/path/to/your/.venv/bin/claude-context-engine",
+      "command": "/path/to/your/.venv/bin/cce",
       "args": ["serve"]
     }
   }
@@ -229,15 +246,17 @@ The engine auto-detects your machine's resources and adjusts accordingly:
 
 ## CLI Commands
 
+The short command is `cce` (3 characters). The full `claude-context-engine` also works.
+
 ```bash
-claude-context-engine init            # Initialize project + first index
-claude-context-engine index           # Re-index project
-claude-context-engine index --full    # Force full re-index (ignore cache)
-claude-context-engine index --path src/  # Index specific directory
-claude-context-engine status          # Show index stats and config
-claude-context-engine serve           # Start MCP server (used by Claude Code)
-claude-context-engine serve-http      # Start HTTP API (for remote mode)
-claude-context-engine remote-setup    # Set up remote server
+cce init              # Initialize project + first index
+cce index             # Re-index project
+cce index --full      # Force full re-index (ignore cache)
+cce index --path src/ # Index specific directory
+cce status            # Show index stats and config
+cce serve             # Start MCP server (used by Claude Code)
+cce serve-http        # Start HTTP API (for remote mode)
+cce remote-setup      # Set up remote server
 ```
 
 ## Remote Mode

@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6c3483;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2980b9;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="inner" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8e44ad;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#3498db;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="glow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#a6e3a1;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#74c7ec;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background rounded square -->
+  <rect x="16" y="16" width="480" height="480" rx="80" ry="80" fill="url(#bg)" />
+
+  <!-- Brain/circuit pattern - outer ring -->
+  <circle cx="256" cy="240" r="160" fill="none" stroke="url(#glow)" stroke-width="3" opacity="0.3" />
+  <circle cx="256" cy="240" r="120" fill="none" stroke="url(#glow)" stroke-width="2" opacity="0.2" />
+
+  <!-- Central hexagon representing the engine -->
+  <polygon points="256,120 316,158 316,234 256,272 196,234 196,158" fill="url(#inner)" stroke="url(#glow)" stroke-width="3" opacity="0.9" />
+
+  <!-- Index/search icon - magnifying glass with code brackets -->
+  <circle cx="246" cy="186" r="40" fill="none" stroke="#ffffff" stroke-width="6" />
+  <line x1="276" y1="216" x2="306" y2="246" stroke="#ffffff" stroke-width="6" stroke-linecap="round" />
+
+  <!-- Code brackets inside magnifying glass -->
+  <text x="226" y="196" fill="#a6e3a1" font-family="monospace" font-size="30" font-weight="bold">&lt;/&gt;</text>
+
+  <!-- Connection nodes - representing graph/vector connections -->
+  <!-- Top -->
+  <circle cx="256" cy="96" r="12" fill="#a6e3a1" />
+  <line x1="256" y1="108" x2="256" y2="120" stroke="#a6e3a1" stroke-width="2" />
+
+  <!-- Top right -->
+  <circle cx="348" cy="132" r="12" fill="#74c7ec" />
+  <line x1="338" y1="138" x2="316" y2="158" stroke="#74c7ec" stroke-width="2" />
+
+  <!-- Right -->
+  <circle cx="360" cy="220" r="12" fill="#f9e2af" />
+  <line x1="348" y1="220" x2="316" y2="220" stroke="#f9e2af" stroke-width="2" />
+
+  <!-- Bottom right -->
+  <circle cx="340" cy="290" r="12" fill="#a6e3a1" />
+  <line x1="330" y1="282" x2="316" y2="234" stroke="#a6e3a1" stroke-width="2" />
+
+  <!-- Bottom -->
+  <circle cx="256" cy="310" r="12" fill="#74c7ec" />
+  <line x1="256" y1="298" x2="256" y2="272" stroke="#74c7ec" stroke-width="2" />
+
+  <!-- Bottom left -->
+  <circle cx="172" cy="290" r="12" fill="#f9e2af" />
+  <line x1="182" y1="282" x2="196" y2="234" stroke="#f9e2af" stroke-width="2" />
+
+  <!-- Left -->
+  <circle cx="152" cy="220" r="12" fill="#a6e3a1" />
+  <line x1="164" y1="220" x2="196" y2="220" stroke="#a6e3a1" stroke-width="2" />
+
+  <!-- Top left -->
+  <circle cx="164" cy="132" r="12" fill="#74c7ec" />
+  <line x1="174" y1="138" x2="196" y2="158" stroke="#74c7ec" stroke-width="2" />
+
+  <!-- Compression arrows (down arrows representing token reduction) -->
+  <g transform="translate(186, 340)" opacity="0.9">
+    <polygon points="0,0 20,0 10,16" fill="#a6e3a1" />
+  </g>
+  <g transform="translate(246, 340)" opacity="0.9">
+    <polygon points="0,0 20,0 10,16" fill="#a6e3a1" />
+  </g>
+  <g transform="translate(306, 340)" opacity="0.9">
+    <polygon points="0,0 20,0 10,16" fill="#a6e3a1" />
+  </g>
+
+  <!-- Text: CCE -->
+  <text x="256" y="410" text-anchor="middle" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="56" font-weight="800" letter-spacing="8">CCE</text>
+
+  <!-- Subtitle -->
+  <text x="256" y="448" text-anchor="middle" fill="#cdd6f4" font-family="system-ui, -apple-system, sans-serif" font-size="18" font-weight="400" letter-spacing="4" opacity="0.8">CONTEXT ENGINE</text>
+</svg>

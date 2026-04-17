@@ -49,6 +49,7 @@ dev = [
 
 [project.scripts]
 claude-context-engine = "context_engine.cli:main"
+cce = "context_engine.cli:main"
 
 [build-system]
 requires = ["setuptools>=68.0"]
