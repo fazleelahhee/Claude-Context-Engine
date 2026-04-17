@@ -9,12 +9,14 @@ from context_engine.config import load_config, PROJECT_CONFIG_NAME
 
 
 @click.group()
+@click.option("--verbose", "-v", is_flag=True, help="Enable detailed logging output")
 @click.pass_context
-def main(ctx):
+def main(ctx, verbose):
     """claude-context-engine — Local context engine for Claude Code."""
     ctx.ensure_object(dict)
     project_path = Path.cwd() / PROJECT_CONFIG_NAME
     ctx.obj["config"] = load_config(project_path=project_path if project_path.exists() else None)
+    ctx.obj["verbose"] = verbose
 
 
 @main.command()
@@ -46,8 +48,9 @@ def init(ctx):
 def index(ctx, full, path, changed_only):
     """Index or re-index project files."""
     config = ctx.obj["config"]
+    verbose = ctx.obj["verbose"]
     project_dir = path or str(Path.cwd())
-    asyncio.run(_run_index(config, project_dir, full=full))
+    asyncio.run(_run_index(config, project_dir, full=full, verbose=verbose))
     click.echo("Indexing complete.")
 
 
@@ -56,12 +59,23 @@ def index(ctx, full, path, changed_only):
 def status(ctx):
     """Show index status, DB stats, and remote server status."""
     config = ctx.obj["config"]
+    verbose = ctx.obj["verbose"]
     click.echo(f"Storage path: {config.storage_path}")
     click.echo(f"Remote enabled: {config.remote_enabled}")
     if config.remote_enabled:
         click.echo(f"Remote host: {config.remote_host}")
     click.echo(f"Compression level: {config.compression_level}")
     click.echo(f"Resource profile: {config.detect_resource_profile()}")
+    if verbose:
+        storage_path = Path(config.storage_path)
+        if storage_path.exists():
+            projects = [d for d in storage_path.iterdir() if d.is_dir()]
+            click.echo(f"Projects indexed: {len(projects)}")
+            for project in projects:
+                chunks = list(project.glob("**/*.json"))
+                click.echo(f"  {project.name}: {len(chunks)} stored files")
+        else:
+            click.echo("Storage directory does not exist yet.")
 
 
 @main.command()
@@ -94,7 +108,7 @@ def remote_setup(ctx):
     click.echo("Remote setup not yet implemented.")
 
 
-async def _run_index(config, project_dir: str, full: bool = False) -> None:
+async def _run_index(config, project_dir: str, full: bool = False, verbose: bool = False) -> None:
     """Run indexing pipeline."""
     import hashlib
     from context_engine.indexer.chunker import Chunker
@@ -150,14 +164,21 @@ async def _run_index(config, project_dir: str, full: bool = False) -> None:
             elif entry.is_file() and entry.suffix in extensions:
                 yield entry
 
+    import time
     for file_path in _walk_files(project_path):
         rel_path = str(file_path.relative_to(project_path))
         content = file_path.read_text(errors="ignore")
         content_hash = hashlib.sha256(content.encode()).hexdigest()
         if not full and not manifest.has_changed(rel_path, content_hash):
+            if verbose:
+                click.echo(f"  [skip] {rel_path} (unchanged)")
             continue
         language = language_map.get(file_path.suffix, "plaintext")
+        t0 = time.monotonic()
         chunks = chunker.chunk(content, file_path=rel_path, language=language)
+        elapsed = time.monotonic() - t0
+        if verbose:
+            click.echo(f"  [index] {rel_path} — {len(chunks)} chunks ({elapsed:.3f}s)")
         file_node = GraphNode(
             id=f"file_{rel_path}", node_type=NodeType.FILE,
             name=file_path.name, file_path=rel_path,
