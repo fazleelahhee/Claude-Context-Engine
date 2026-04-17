@@ -274,6 +274,7 @@ class ContextEngineMCP:
             top_k=top_k,
             confidence_threshold=self._config.retrieval_confidence_threshold,
         )
+        chunks = await self._compressor.compress(chunks, self._config.compression_level)
         results = []
         raw_tokens = 0
         served_tokens = 0

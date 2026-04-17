@@ -103,7 +103,10 @@ class VectorStore:
     ) -> list[Chunk]:
         with self._lock:
             if self._table is None:
-                return []
+                try:
+                    self._table = self._db.open_table(TABLE_NAME)
+                except Exception:
+                    return []
             query = self._table.search(query_embedding).limit(top_k)
             if filters:
                 where_clauses = [
@@ -123,7 +126,10 @@ class VectorStore:
     async def get_by_id(self, chunk_id: str) -> Chunk | None:
         with self._lock:
             if self._table is None:
-                return None
+                try:
+                    self._table = self._db.open_table(TABLE_NAME)
+                except Exception:
+                    return None
             results = (
                 self._table.search()
                 .where(f"id = {_escape_sql_literal(chunk_id)}")
