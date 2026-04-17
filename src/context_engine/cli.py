@@ -118,6 +118,8 @@ def status(ctx: click.Context) -> None:
             click.echo(f"  Saved:         {saved:,} ({pct}%)")
         except (KeyError, _json.JSONDecodeError):
             pass
+    else:
+        click.echo("\nToken savings: no usage recorded yet (run context_search via MCP)")
 
     if verbose:
         storage_path = Path(config.storage_path)

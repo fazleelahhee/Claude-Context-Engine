@@ -204,11 +204,23 @@ class ContextEngineMCP:
         ]
 
     async def _handle_index_status(self):
-        rules = get_output_rules(self._output_level)
+        queries = self._stats["queries"]
+        raw = self._stats["raw_tokens"]
+        served = self._stats["served_tokens"]
+        saved = raw - served
+        pct = int(saved / raw * 100) if raw > 0 else 0
+
         status_parts = [
-            f"Index status: operational",
+            "Index status: operational",
             f"Output compression: {self._output_level} — {get_level_description(self._output_level)}",
         ]
+        if queries > 0:
+            status_parts.append(
+                f"Token savings ({queries} queries): {raw:,} raw → {served:,} served "
+                f"({saved:,} saved, {pct}%)"
+            )
+        else:
+            status_parts.append("Token savings: no queries recorded yet")
         return [TextContent(type="text", text="\n".join(status_parts))]
 
     async def _handle_reindex(self, args):
