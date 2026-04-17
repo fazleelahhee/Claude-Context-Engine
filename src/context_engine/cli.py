@@ -36,6 +36,7 @@ def _configure_mcp(project_dir: Path) -> bool:
 
 
 @click.group()
+@click.version_option(package_name="claude-context-engine")
 @click.option("--verbose", "-v", is_flag=True, help="Enable detailed logging output")
 @click.pass_context
 def main(ctx: click.Context, verbose: bool) -> None:
