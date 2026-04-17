@@ -278,6 +278,12 @@ Want more? See open issues for Go, Rust, and Java support.
 
 We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
 
+> **Using CCE vs contributing to it**
+>
+> If you just want to use CCE in your projects, `pip install claude-context-engine` is all you need. No `uv`, no cloning, no virtualenv setup.
+>
+> `uv` and the dev dependencies only matter if you are working on CCE itself (running tests, modifying source code). Those steps are in CONTRIBUTING.md.
+
 Check out the [good first issues](https://github.com/fazleelahhee/Claude-Context-Engine/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) to get started.
 
 ## Roadmap
