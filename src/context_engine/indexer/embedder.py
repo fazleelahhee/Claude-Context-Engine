@@ -26,7 +26,10 @@ def _is_model_cached(model_name: str) -> bool:
     cache_dir = _model_cache_dir()
     if not cache_dir.exists():
         return False
-    # sentence-transformers stores repos as `models--{org}--{name}` under `hub/`.
+    # SentenceTransformer resolves bare names (e.g. "all-MiniLM-L6-v2") to
+    # "sentence-transformers/all-MiniLM-L6-v2" before fetching.
+    if "/" not in model_name:
+        model_name = f"sentence-transformers/{model_name}"
     safe_name = "models--" + model_name.replace("/", "--")
     return any(child.name == safe_name for child in cache_dir.iterdir())
 
