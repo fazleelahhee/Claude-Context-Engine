@@ -11,10 +11,10 @@ _PROMPT_MAP = {
     ChunkType.DECISION: DECISION_PROMPT, ChunkType.SESSION: DOC_PROMPT,
     ChunkType.COMMIT: DOC_PROMPT, ChunkType.COMMENT: DOC_PROMPT,
 }
-_TRUNCATION_LIMITS = {"minimal": 100, "standard": 300, "full": 800}
+_TRUNCATION_LIMITS: dict[str, int] = {"minimal": 100, "standard": 300, "full": 800}
 
 class Compressor:
-    def __init__(self, ollama_url="http://localhost:11434", model="phi3:mini"):
+    def __init__(self, ollama_url: str = "http://localhost:11434", model: str = "phi3:mini") -> None:
         self._client = OllamaClient(base_url=ollama_url, model=model)
         self._quality = QualityChecker()
 
@@ -29,7 +29,7 @@ class Compressor:
                 chunk.compressed_content = self._fallback_compress(chunk, level)
         return chunks
 
-    async def _llm_compress(self, chunk, level):
+    async def _llm_compress(self, chunk: Chunk, level: str) -> str:
         prompt = _PROMPT_MAP.get(chunk.chunk_type, CODE_PROMPT)
         try:
             summary = await self._client.summarize(chunk.content, prompt)
@@ -39,7 +39,7 @@ class Compressor:
         except Exception:
             return self._fallback_compress(chunk, level)
 
-    def _fallback_compress(self, chunk, level):
+    def _fallback_compress(self, chunk: Chunk, level: str) -> str:
         limit = _TRUNCATION_LIMITS.get(level, 300)
         if chunk.chunk_type in (ChunkType.FUNCTION, ChunkType.CLASS):
             return self._extract_signature(chunk.content, limit)
@@ -47,9 +47,9 @@ class Compressor:
             return chunk.content
         return chunk.content[:limit] + "..."
 
-    def _extract_signature(self, content, limit):
+    def _extract_signature(self, content: str, limit: int) -> str:
         lines = content.split("\n")
-        result_lines = []
+        result_lines: list[str] = []
         in_docstring = False
         char_count = 0
         for line in lines:
