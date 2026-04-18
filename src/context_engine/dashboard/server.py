@@ -7,8 +7,12 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
+from context_engine.config import Config
+from context_engine.dashboard._page import PAGE_HTML
+from context_engine.storage.local_backend import LocalBackend
 
-def create_app(config, project_dir: Path) -> FastAPI:
+
+def create_app(config: Config, project_dir: Path) -> FastAPI:
     """Build and return the FastAPI application.
 
     All route handlers close over `storage_base` and `project_dir` so the
@@ -18,6 +22,8 @@ def create_app(config, project_dir: Path) -> FastAPI:
     storage_base = Path(config.storage_path) / project_name
 
     app = FastAPI(title="CCE Dashboard", docs_url=None, redoc_url=None)
+
+    backend = LocalBackend(base_path=str(storage_base))
 
     # ── helpers ────────────────────────────────────────────────────────────
 
@@ -55,24 +61,23 @@ def create_app(config, project_dir: Path) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def serve_page() -> str:
-        from context_engine.dashboard._page import PAGE_HTML
         return PAGE_HTML
 
     @app.get("/api/status")
     async def get_status() -> dict:
-        from context_engine.storage.local_backend import LocalBackend
-
         stats = _read_stats()
         manifest = _read_manifest()
         state = _read_state()
 
-        backend = LocalBackend(base_path=str(storage_base))
-        chunks = backend.count_chunks()
+        try:
+            chunks = backend.count_chunks()
+        except Exception:
+            chunks = 0
 
         full_file = stats.get("full_file_tokens", 0)
         served = stats.get("served_tokens", 0)
         baseline = full_file if full_file > 0 else stats.get("raw_tokens", 0)
-        saved_pct = int((1 - served / baseline) * 100) if baseline > 0 else 0
+        saved_pct = max(0, int((1 - served / baseline) * 100)) if baseline > 0 else 0
 
         output_level = state.get("output_level", config.output_compression)
 
