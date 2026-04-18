@@ -1,0 +1,31 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(PYTHONPATH=src python -m pytest tests/ -x --tb=short)",
+      "Bash(PYTHONPATH=src uv run pytest tests/ -x --tb=short)",
+      "Bash(bash /Users/raj/.claude/plugins/cache/claude-plugins-official/superpowers/5.0.7/skills/brainstorming/scripts/start-server.sh --project-dir /Users/raj/projects/Claude-Context-Engine)",
+      "Bash(uv sync:*)",
+      "Bash(uv pip:*)",
+      "Bash(PYTHONPATH=src uv run pytest tests/storage/test_vector_store.py::test_count_empty tests/storage/test_vector_store.py::test_file_chunk_counts_empty tests/storage/test_vector_store.py::test_clear_resets_table tests/storage/test_vector_store.py::test_file_chunk_counts_after_ingest -v 2>&1)",
+      "Bash(uv --version)",
+      "Bash(PYTHONPATH=src /Users/raj/.local/bin/uv run pytest tests/storage/test_vector_store.py::test_count_empty tests/storage/test_vector_store.py::test_file_chunk_counts_empty tests/storage/test_vector_store.py::test_clear_resets_table tests/storage/test_vector_store.py::test_file_chunk_counts_after_ingest -v 2>&1)",
+      "Bash(PYTHONPATH=/Users/raj/projects/Claude-Context-Engine/src /Users/raj/.local/bin/uv run --directory /Users/raj/projects/Claude-Context-Engine pytest tests/storage/test_vector_store.py::test_count_empty -v 2>&1)",
+      "Bash(/Users/raj/.local/bin/uv sync:*)",
+      "Bash(PYTHONPATH=/Users/raj/projects/Claude-Context-Engine/src /Users/raj/.local/bin/uv run pytest tests/storage/test_vector_store.py::test_count_empty tests/storage/test_vector_store.py::test_file_chunk_counts_empty tests/storage/test_vector_store.py::test_clear_resets_table tests/storage/test_vector_store.py::test_file_chunk_counts_after_ingest -v 2>&1)",
+      "Bash(PYTHONPATH=/Users/raj/projects/Claude-Context-Engine/src /Users/raj/.local/bin/uv run pytest tests/storage/test_vector_store.py -v 2>&1)",
+      "Bash(PYTHONPATH=src uv run pytest tests/storage/test_vector_store.py -v)",
+      "Bash(PYTHONPATH=src uv run pytest tests/storage/test_vector_store.py -v --tb=short)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py -v 2>&1)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py -v)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py -v --tb=short)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py::test_reindex_full tests/dashboard/test_server.py::test_set_compression -v --tb=long)",
+      "Bash(PYTHONPATH=src python3 -c \"\nfrom fastapi.testclient import TestClient\nfrom context_engine.config import Config\nfrom context_engine.dashboard.server import create_app\nfrom pathlib import Path\nimport tempfile, json\n\nwith tempfile.TemporaryDirectory\\(\\) as tmp:\n    tmp = Path\\(tmp\\)\n    project_dir = tmp / 'workspace' / 'my-project'\n    project_dir.mkdir\\(parents=True\\)\n    config = Config\\(storage_path=str\\(tmp / 'storage'\\)\\)\n    app = create_app\\(config, project_dir\\)\n    client = TestClient\\(app\\)\n    r = client.post\\('/api/reindex', json={'full': True}\\)\n    print\\('reindex status:', r.status_code\\)\n    print\\('reindex body:', r.text\\)\n    r2 = client.post\\('/api/compression', json={'level': 'max'}\\)\n    print\\('compression status:', r2.status_code\\)\n    print\\('compression body:', r2.text\\)\n\")",
+      "Bash(PYTHONPATH=src uv run python3 -c \"\nfrom fastapi.testclient import TestClient\nfrom context_engine.config import Config\nfrom context_engine.dashboard.server import create_app\nfrom pathlib import Path\nimport tempfile, json\n\nwith tempfile.TemporaryDirectory\\(\\) as tmp:\n    tmp = Path\\(tmp\\)\n    project_dir = tmp / 'workspace' / 'my-project'\n    project_dir.mkdir\\(parents=True\\)\n    config = Config\\(storage_path=str\\(tmp / 'storage'\\)\\)\n    app = create_app\\(config, project_dir\\)\n    client = TestClient\\(app\\)\n    r = client.post\\('/api/reindex', json={'full': True}\\)\n    print\\('reindex status:', r.status_code\\)\n    print\\('reindex body:', r.text[:300]\\)\n    r2 = client.post\\('/api/compression', json={'level': 'max'}\\)\n    print\\('compression status:', r2.status_code\\)\n    print\\('compression body:', r2.text[:300]\\)\n\")",
+      "Bash(PYTHONPATH=src uv run pytest tests/ -x --tb=short -q)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py::test_get_root_returns_html -v --tb=short)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py::test_find_free_port tests/dashboard/test_server.py::test_dashboard_command_no_browser -v --tb=short)",
+      "Bash(PYTHONPATH=src uv run pytest tests/dashboard/test_server.py -v --tb=short -q)",
+      "Bash(PYTHONPATH=src uv run pytest tests/ --tb=short -q)"
+    ]
+  }
+}

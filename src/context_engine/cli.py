@@ -2,6 +2,7 @@
 """CLI entry point for claude-context-engine."""
 import asyncio
 import json
+import socket
 import sys
 from pathlib import Path
 
@@ -319,12 +320,46 @@ def savings_shortcut() -> None:
     _cmd()
 
 
+def _find_free_port() -> int:
+    """Return an available TCP port on localhost."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 @main.command()
 @click.pass_context
 def serve(ctx: click.Context) -> None:
     """Start the MCP server (used by Claude Code)."""
     click.echo("Starting context engine MCP server...", err=True)
     asyncio.run(_run_serve(ctx.obj["config"]))
+
+
+@main.command()
+@click.option("--port", default=0, type=int, help="Port to listen on (0 = random free port)")
+@click.option("--no-browser", is_flag=True, help="Don't open browser automatically")
+@click.pass_context
+def dashboard(ctx: click.Context, port: int, no_browser: bool) -> None:
+    """Start the web dashboard for index inspection."""
+    import webbrowser
+    import uvicorn
+    from context_engine.dashboard.server import create_app
+
+    config = ctx.obj["config"]
+    project_dir = Path.cwd()
+
+    if port == 0:
+        port = _find_free_port()
+
+    url = f"http://localhost:{port}"
+    click.echo(f"CCE Dashboard at {url}")
+    click.echo("Press Ctrl+C to stop.")
+
+    if not no_browser:
+        webbrowser.open(url)
+
+    app = create_app(config, project_dir)
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
 
 
 async def _run_index(config, project_dir: str, full: bool = False, verbose: bool = False) -> None:

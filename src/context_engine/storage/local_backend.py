@@ -60,3 +60,12 @@ class LocalBackend:
             self._fts_store.delete_by_file(file_path),
             self._graph_store.delete_by_file(file_path),
         )
+
+    def count_chunks(self) -> int:
+        return self._vector_store.count()
+
+    def file_chunk_counts(self) -> dict[str, int]:
+        return self._vector_store.file_chunk_counts()
+
+    async def clear(self) -> None:
+        self._vector_store.clear()

@@ -5,13 +5,7 @@
 <h1 align="center">Claude Context Engine</h1>
 
 <p align="center">
-  <strong>Make Claude understand your codebase without wasting tokens.</strong>
-
-
-Claude Context Engine is a local-first context engine for Claude Code. It indexes your repository, breaks code into meaningful chunks, and retrieves only the most relevant context for each task.
-
-The goal is simple: give Claude the minimum correct context needed to produce a better answer.
-
+  <strong>Give Claude exactly the context it needs. Nothing more.</strong>
 </p>
 
 <p align="center">
@@ -22,23 +16,25 @@ The goal is simple: give Claude the minimum correct context needed to produce a 
   <a href="https://github.com/fazleelahhee/Claude-Context-Engine"><img src="https://img.shields.io/github/stars/fazleelahhee/Claude-Context-Engine?style=social" alt="Stars"></a>
 </p>
 
+<p align="center">
+  Claude Context Engine (CCE) is a local-first context engine for Claude Code. It indexes your repository, breaks code into meaningful chunks, and retrieves only the most relevant context for each task, so Claude spends fewer tokens re-reading code it has already seen.
+</p>
+
+---
+
 ## Overview
 
-Claude Context Engine helps developers avoid three common problems:
+Every Claude Code session starts cold. Without CCE, you either paste too much context and burn tokens, or paste too little and get weak answers. CCE solves this by building a persistent, searchable index of your repository and feeding Claude only the chunks it actually needs.
 
-- pasting too much code and wasting tokens
-- pasting too little and getting weak answers
-- repeatedly explaining the same repository structure
+| Problem | Without CCE | With CCE |
+|---------|-------------|----------|
+| Session startup | Claude re-reads files and project structure | Claude queries the index |
+| Finding a function | Large prompt or manual file sharing | Targeted semantic retrieval |
+| Token usage | High and repetitive | Focused and efficient |
+| Cross-session memory | None by default | Decisions and code areas persisted |
+| Repeated explanations | Re-explain the repo every session | Ask once, retrieve always |
 
-Instead of forcing Claude to re-read files every session, CCE indexes your repository and retrieves targeted context only when needed.
-
-## Key Benefits
-
-- Lower token usage through targeted context retrieval
-- Better first-pass answers from Claude Code
-- Less manual context sharing and prompt repetition
-- Local-first workflow with optional remote server mode
-- Semantic indexing designed for real repositories, not generic demos
+---
 
 ## Quick Start
 
@@ -54,38 +50,48 @@ pipx install claude-context-engine                                # all platform
 pip install claude-context-engine                                 # inside a virtualenv
 ```
 
-### 2. Index Your Project
+### 2. Index your project
 
 ```bash
 cd /path/to/your/project
 cce init
 ```
 
-`cce init` handles the initial setup automatically:
-
-- indexes your codebase
-- installs git hooks
-- writes the MCP config to `.mcp.json`
+`cce init` handles everything in one step: indexes your codebase, installs git hooks to keep the index current, and writes the MCP server entry to `.mcp.json`.
 
 ### 3. Restart Claude Code
 
-Once restarted, Claude can search your indexed codebase instead of re-reading files every session.
+Once restarted, Claude can call `context_search` to retrieve relevant code instead of reading files from scratch every session.
 
-## Before and After
+---
 
-| | Without CCE | With CCE |
-|---|---|---|
-| Session startup | Claude re-reads files and project structure | Claude uses indexed context |
-| Finding a function | Large prompt or manual file sharing | Targeted retrieval |
-| Token usage | High and repetitive | Smaller and more focused |
-| Cross-session memory | None by default | Supported |
-| Workflow | Re-explain the repo repeatedly | Ask directly and retrieve context |
+## Web Dashboard
 
-Claude Context Engine is designed to reduce prompt bloat while improving the quality of context Claude receives.
+CCE includes a local web dashboard for inspecting your index, viewing token savings, and managing indexed files.
+
+```bash
+cce dashboard
+```
+
+The dashboard opens automatically in your browser. Use `--no-browser` to suppress that behavior, or `--port` to specify a port.
+
+![CCE Dashboard](docs/dashboard.png)
+
+The dashboard provides four views:
+
+**Overview.** Four stat cards (chunks indexed, files indexed, queries run, tokens saved) plus a 2x2 chart grid: token savings donut, file health donut, top files by chunk count, and session decision activity. Live-updating every 5 seconds.
+
+**Files.** Full list of indexed files with staleness detection. Files are marked `ok`, `stale` (modified since last index), or `missing` (deleted). Per-file reindex and removal available inline.
+
+**Sessions.** Architectural decisions and code areas captured during Claude coding sessions, organized by session with expandable detail.
+
+**Savings.** Token usage breakdown with a donut chart and stacked progress bar showing how many tokens CCE saved versus the raw file baseline. Output compression controls on the same page.
+
+---
 
 ## Token Savings
 
-Run `cce savings` to see how much context CCE is saving:
+Run `cce savings` for a quick terminal report:
 
 ```text
 $ cce savings
@@ -94,23 +100,25 @@ $ cce savings
      14.2k / 48.0k tokens used (30%)
 
      Token savings
-     With CCE:     14,200 tokens (30%)
-     Tokens saved: 33,800 tokens (70%)
+     With CCE:     14,200 tokens  (30%)
+     Tokens saved: 33,800 tokens  (70%)
 ```
 
-Savings grow over time because Claude receives only what it needs, not entire files or repeated context dumps.
+Savings grow over time. On the first query, CCE retrieves a small slice of your codebase. On subsequent queries, it retrieves different slices. The alternative is pasting entire files every time.
 
-Exact savings depend on project size, query pattern, and compression settings, but the objective remains consistent: better context with fewer tokens.
+Exact savings depend on project size, query patterns, and compression settings.
+
+---
 
 ## How It Works
 
 ### 1. Code Indexing
 
-CCE indexes your repository and builds a searchable representation of the codebase.
+CCE walks your repository, hashes each file, and builds a LanceDB vector index. Git hooks keep the index current after each commit.
 
 ### 2. Semantic Chunking
 
-Instead of treating files as flat text, CCE splits code into meaningful units such as functions, classes, and modules.
+Instead of treating files as flat text, CCE splits code into meaningful units: functions, classes, and modules. Each chunk is embedded independently.
 
 ```text
 Raw file (800 lines, ~12k tokens)
@@ -120,58 +128,39 @@ Raw file (800 lines, ~12k tokens)
 
 ### 3. Compression
 
-CCE can reduce context size in two ways:
-
-- optional LLM-based summarization through Ollama
-- smart truncation fallback using signatures and docstrings
-
-Example:
+CCE can reduce context size in two ways. With Ollama running locally, it uses LLM-based summarization. Without Ollama, it falls back to smart truncation using function signatures and docstrings.
 
 ```python
 # Original
 def calculate_shipping(order, warehouse, method="standard"):
     """Calculate shipping cost based on order weight and location."""
     total_weight = sum(item.weight * item.quantity for item in order.items)
-    # ...
+    # ... 40 more lines
 
-# Compressed
+# Compressed (truncation fallback)
 def calculate_shipping(order, warehouse, method="standard"):
     """Calculate shipping cost based on order weight and location."""
 ```
 
 ### 4. Retrieval Ranking
 
-Chunks are ranked using a combination of:
-
-- vector similarity
-- keyword match
-- recency
-
-Only context above the confidence threshold is returned.
+Retrieved chunks are ranked by a combination of vector similarity, keyword match, and recency. Only chunks above the confidence threshold are returned.
 
 ### 5. Progressive Disclosure
 
-CCE helps Claude start small and expand only when needed.
+CCE starts small and expands only when Claude needs more detail.
 
 ```text
 Session start:      Project overview               ->  10k tokens
 Search:             "Find payment processing"      ->   800 tokens
 Drill-down:         "Show full calculate_shipping" ->   600 tokens
-                                                    -------
+                                                    --------
                                                     11.4k tokens
 
-Without engine:     Read payments.py + shipping.py ->  45k tokens
+Without CCE:        Read payments.py + shipping.py ->  45k tokens
 ```
 
-## Features
-
-- Semantic code indexing for repositories
-- Relevant code retrieval by developer intent
-- Optional context compression
-- Cross-session memory support
-- Local-first design
-- Optional remote server mode
-- MCP integration for Claude Code
+---
 
 ## CLI Commands
 
@@ -180,13 +169,19 @@ Without engine:     Read payments.py + shipping.py ->  45k tokens
 | `cce init` | One-time setup: index, git hooks, MCP config |
 | `cce index` | Re-index changed files |
 | `cce index --full` | Force a full re-index |
-| `cce status` | Index config and token savings summary |
-| `cce savings` | Visual savings report |
+| `cce index --path <path>` | Index a specific file or directory |
+| `cce status` | Show index config and token savings summary |
+| `cce savings` | Visual token savings report |
 | `cce savings --all` | Savings across all indexed projects |
 | `cce savings --json` | Machine-readable savings output |
-| `cce serve` | Start MCP server |
+| `cce dashboard` | Open the web dashboard |
+| `cce dashboard --port 8080` | Open on a specific port |
+| `cce dashboard --no-browser` | Start server without opening a browser |
+| `cce serve` | Start the MCP server (used by Claude Code) |
 
-## MCP Tools in Claude Code
+---
+
+## MCP Tools
 
 Once connected, Claude gets these tools automatically:
 
@@ -195,45 +190,49 @@ Once connected, Claude gets these tools automatically:
 | `context_search` | Semantic search across your indexed codebase |
 | `expand_chunk` | Get full source for a compressed chunk |
 | `session_recall` | Recall past decisions and code-area notes |
-| `record_decision` | Record a decision for future recall |
-| `record_code_area` | Record a file and description of work done |
+| `record_decision` | Save an architectural decision for future sessions |
+| `record_code_area` | Record a file and a description of work done |
 | `index_status` | Check index status and token savings stats |
-| `reindex` | Trigger re-indexing of a file or full project |
+| `reindex` | Trigger re-indexing of a file or the full project |
 | `set_output_compression` | Adjust response verbosity: `off`, `lite`, `standard`, `max` |
 
-## Output Compression Levels
+---
 
-Output tokens can be expensive. CCE includes built-in output compression:
+## Output Compression
 
-| Level | Style | Savings |
-|-------|-------|---------|
-| `off` | Normal Claude output | 0% |
+CCE includes built-in output compression to reduce the tokens Claude uses in its responses.
+
+| Level | Style | Typical savings |
+|-------|-------|-----------------|
+| `off` | Full Claude output | 0% |
 | `lite` | No filler or hedging | ~30% |
 | `standard` | Shorter phrasing and fragments | ~65% |
 | `max` | Telegraphic style | ~75% |
 
-Examples:
+To change the level, tell Claude directly:
 
 ```text
 Switch to max output compression
 Turn off output compression
 ```
 
-Code blocks, file paths, commands, and error messages are never compressed. Security warnings always use full clarity.
+Code blocks, file paths, commands, and error messages are never compressed. Security warnings always use full verbosity.
+
+---
 
 ## Configuration
 
-CCE works with zero config, but you can customize it.
+CCE works with zero configuration. The following options are available when you need them.
 
-### Global Configuration
+### Global configuration
 
 File: `~/.claude-context-engine/config.yaml`
 
 ```yaml
 compression:
-  level: standard        # minimal | standard | full (input)
-  output: standard       # off | lite | standard | max (output)
-  model: phi3:mini       # Ollama model (auto-detected if running)
+  level: standard        # minimal | standard | full (input compression)
+  output: standard       # off | lite | standard | max (output compression)
+  model: phi3:mini       # Ollama model (auto-detected if Ollama is running)
 
 indexer:
   watch: true
@@ -244,9 +243,9 @@ retrieval:
   confidence_threshold: 0.5
 ```
 
-### Per-Project Configuration
+### Per-project configuration
 
-File: `.context-engine.yaml`
+File: `.context-engine.yaml` in your project root
 
 ```yaml
 compression:
@@ -256,21 +255,21 @@ indexer:
   ignore: [.git, node_modules, dist, coverage]
 ```
 
-### Resource Profiles
+### Resource profiles
 
-The engine can auto-detect machine resources:
+CCE auto-detects available memory and adjusts its behavior:
 
 | RAM | Profile | Behavior |
 |-----|---------|----------|
-| < 12 GB | light | Truncation only, small batches |
-| 12-32 GB | standard | Full pipeline |
-| 32+ GB | full | Larger models, all features |
+| Less than 12 GB | light | Truncation only, small batches |
+| 12 to 32 GB | standard | Full pipeline |
+| More than 32 GB | full | Larger models, all features enabled |
+
+---
 
 ## Optional Ollama Support
 
-Without Ollama, the engine uses smart truncation.
-
-With Ollama running locally, CCE can use higher-quality summaries automatically.
+Without Ollama, CCE uses smart truncation for compression. With Ollama running locally, it uses higher-quality LLM-based summaries automatically.
 
 ```bash
 brew install ollama
@@ -278,51 +277,62 @@ ollama pull phi3:mini
 ollama serve
 ```
 
-No extra configuration is required.
+No configuration required. CCE detects Ollama automatically.
+
+---
 
 ## Supported Languages
 
-### AST-Aware Chunking
+### AST-aware chunking
 
-- Python
-- JavaScript
-- TypeScript
-- JSX
-- TSX
-- PHP
+| Language | Extension |
+|----------|-----------|
+| Python | `.py` |
+| JavaScript | `.js` |
+| TypeScript | `.ts` |
+| JSX | `.jsx` |
+| TSX | `.tsx` |
+| PHP | `.php` |
 
-### Fallback Chunking
+### Fallback chunking
 
-- Markdown
-- other text-based files
+Markdown and other text-based files are supported with line-based chunking. Go, Rust, Java, C, and C++ are planned.
 
-Additional language support such as Go, Rust, and Java is planned.
+---
 
 ## Use Cases
 
-- understanding unfamiliar codebases
-- locating related logic across multiple files
-- reducing prompt size for large repositories
-- improving Claude Code workflows
-- maintaining context across repeated sessions
+- Onboarding to an unfamiliar codebase quickly
+- Locating related logic scattered across multiple files
+- Reducing prompt size for large repositories
+- Maintaining architectural decisions across repeated sessions
+- Improving first-pass answer quality from Claude Code
+
+---
 
 ## Roadmap
 
-- Tree-sitter support for Go, Rust, Java, C, and C++
-- Web dashboard for index inspection
-- Persistent session search across projects
-- Docker support for remote mode
-- More retrieval-quality benchmarks on real repositories
+- [x] Semantic code indexing and retrieval
+- [x] Output compression levels
+- [x] Cross-session memory (decisions, code areas)
+- [x] Web dashboard with charts (`cce dashboard`)
+- [x] Token savings tracking and reporting
+- [ ] Tree-sitter support for Go, Rust, Java, C, and C++
+- [ ] Persistent session search across projects
+- [ ] Docker support for remote mode
+- [ ] Retrieval quality benchmarks on real repositories
+
+---
 
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions.
 
-If you only want to use CCE in your own projects, `pip install claude-context-engine` is enough.
+To use CCE in your own projects, `pip install claude-context-engine` is all you need. Development dependencies only matter if you want to work on CCE itself.
 
-Development dependencies and local setup only matter if you want to work on CCE itself.
+Browse [good first issues](https://github.com/fazleelahhee/Claude-Context-Engine/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) if you are looking for a place to start.
 
-You can also browse the [good first issues](https://github.com/fazleelahhee/Claude-Context-Engine/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
+---
 
 ## License
 
@@ -336,4 +346,4 @@ MIT. See [LICENSE](LICENSE).
 - [Tree-sitter](https://tree-sitter.github.io/)
 - [Ollama](https://ollama.com/)
 
-If CCE saves you tokens, give it a star. It helps more developers find it.
+If CCE saves you tokens, give it a star.

@@ -152,6 +152,46 @@ class VectorStore:
                 return
             self._table.delete(f"file_path = {_escape_sql_literal(file_path)}")
 
+    def count(self) -> int:
+        """Return total number of chunks in the table."""
+        with self._lock:
+            if self._table is None:
+                try:
+                    self._table = self._db.open_table(TABLE_NAME)
+                except Exception:
+                    return 0
+            try:
+                return self._table.count_rows()
+            except Exception:
+                return 0
+
+    def file_chunk_counts(self) -> dict[str, int]:
+        """Return {file_path: chunk_count} for all indexed files."""
+        with self._lock:
+            if self._table is None:
+                try:
+                    self._table = self._db.open_table(TABLE_NAME)
+                except Exception:
+                    return {}
+            try:
+                rows = self._table.to_arrow().to_pydict()
+                counts: dict[str, int] = {}
+                for fp in rows.get("file_path", []):
+                    counts[fp] = counts.get(fp, 0) + 1
+                return counts
+            except Exception:
+                return {}
+
+    def clear(self) -> None:
+        """Drop the chunks table, resetting the vector store."""
+        with self._lock:
+            if self._table is not None:
+                try:
+                    self._db.drop_table(TABLE_NAME)
+                except Exception:
+                    pass
+                self._table = None
+
     async def get_by_id(self, chunk_id: str) -> Chunk | None:
         with self._lock:
             if self._table is None:
