@@ -1,10 +1,12 @@
-# Claude Context Engine
-
 <p align="center">
   <img src="docs/logo.svg" alt="Claude Context Engine" width="160">
 </p>
 
-**Make Claude understand your codebase without wasting tokens.**
+<h1 align="center">Claude Context Engine</h1>
+
+<p align="center">
+  <strong>Make Claude understand your codebase without wasting tokens.</strong>
+</p>
 
 Claude Context Engine is a local-first context engine for Claude Code. It indexes your repository, breaks code into meaningful chunks, and retrieves only the most relevant context for each task.
 
