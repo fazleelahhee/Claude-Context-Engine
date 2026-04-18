@@ -37,3 +37,12 @@ class LocalBackend:
 
     async def delete_by_file(self, file_path: str) -> None:
         await self._vector_store.delete_by_file(file_path)
+
+    def count_chunks(self) -> int:
+        return self._vector_store.count()
+
+    def file_chunk_counts(self) -> dict[str, int]:
+        return self._vector_store.file_chunk_counts()
+
+    async def clear(self) -> None:
+        self._vector_store.clear()
