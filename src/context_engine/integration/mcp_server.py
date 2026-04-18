@@ -12,6 +12,11 @@ from context_engine.compression.output_rules import (
     LEVELS,
 )
 from context_engine.integration.bootstrap import BootstrapBuilder
+from context_engine.integration.git_context import (
+    get_recent_commits,
+    get_recently_modified_files,
+    get_working_state,
+)
 from context_engine.integration.session_capture import SessionCapture
 
 log = logging.getLogger(__name__)
@@ -570,18 +575,49 @@ class ContextEngineMCP:
                 return None
             level = (arguments or {}).get("output_level", self._output_level)
 
-            # Compose a real project bootstrap: fetch high-signal chunks and
-            # hand them to BootstrapBuilder rather than returning a static
-            # placeholder.
+            # Compose a rich project bootstrap with git context, session
+            # decisions, and chunks relevant to current work.
             try:
+                # Start with architecture overview chunks
                 chunks = await self._retriever.retrieve(
                     "architecture overview", top_k=10
                 )
+                # Also retrieve chunks for recently modified files so the
+                # init prompt reflects current work, not just static structure.
+                modified_files = get_recently_modified_files(self._project_dir)
+                if modified_files:
+                    file_query = " ".join(
+                        f.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+                        for f in modified_files[:5]
+                    )
+                    try:
+                        recent_chunks = await self._retriever.retrieve(
+                            file_query, top_k=5
+                        )
+                        # Merge without duplicates
+                        seen_ids = {c.id for c in chunks}
+                        for c in recent_chunks:
+                            if c.id not in seen_ids:
+                                chunks.append(c)
+                                seen_ids.add(c.id)
+                    except Exception:
+                        pass
             except Exception:
                 chunks = []
+
+            # Git history and working state
+            recent_commits = get_recent_commits(self._project_dir)
+            working_state = get_working_state(self._project_dir)
+
+            # Active decisions from past sessions
+            active_decisions = self._search_sessions("decision")[:10]
+
             bootstrap_text = self._bootstrap.build(
                 project_name=self._project_name,
                 chunks=chunks,
+                recent_commits=recent_commits,
+                active_decisions=active_decisions,
+                working_state=working_state,
             )
 
             rules = get_output_rules(level)

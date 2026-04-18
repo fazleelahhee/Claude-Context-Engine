@@ -8,11 +8,15 @@ class BootstrapBuilder:
     def __init__(self, max_tokens: int = 10000) -> None:
         self._max_chars = max_tokens * _CHARS_PER_TOKEN
 
-    def build(self, project_name, chunks=None, recent_commits=None, active_decisions=None):
+    def build(self, project_name, chunks=None, recent_commits=None,
+              active_decisions=None, working_state=None):
         sections = []
         sections.append(f"## Project: {project_name}")
         sections.append(self._build_architecture(chunks or []))
         sections.append(self._build_activity(recent_commits or []))
+        if working_state:
+            state_text = "\n".join(f"  {line}" for line in working_state)
+            sections.append(f"### Working State\n{state_text}")
         if active_decisions:
             decisions_text = "\n".join(f"- {d}" for d in active_decisions)
             sections.append(f"### Active Context\n{decisions_text}")
