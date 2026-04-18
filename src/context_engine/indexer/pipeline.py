@@ -183,7 +183,7 @@ async def _run_indexing_locked(
         language = _LANGUAGE_MAP.get(file_path.suffix, "plaintext")
         t0 = time.monotonic()
         try:
-            chunks = chunker.chunk(content, file_path=rel_path, language=language)
+            chunks, imported_modules = chunker.chunk_with_imports(content, file_path=rel_path, language=language)
         except Exception as exc:  # pragma: no cover - defensive
             result.errors.append(f"Chunking failed for {rel_path}: {exc}")
             log.warning("Chunking failed for %s", rel_path, exc_info=exc)
@@ -203,6 +203,17 @@ async def _run_indexing_locked(
             file_path=rel_path,
         )
         all_nodes.append(file_node)
+
+        # Add IMPORTS edges for detected import statements
+        for module in imported_modules:
+            all_edges.append(
+                GraphEdge(
+                    source_id=file_node.id,
+                    target_id=f"module_{module}",
+                    edge_type=EdgeType.IMPORTS,
+                )
+            )
+
         for chunk in chunks:
             node_type = (
                 NodeType.FUNCTION
