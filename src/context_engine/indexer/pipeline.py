@@ -37,7 +37,14 @@ def _pipeline_lock(storage_key: str) -> asyncio.Lock:
         _PIPELINE_LOCKS[storage_key] = lock
     return lock
 
-_EXTENSIONS = {".py", ".js", ".ts", ".jsx", ".tsx", ".md", ".php"}
+_EXTENSIONS = {
+    ".py", ".js", ".ts", ".jsx", ".tsx", ".md", ".php",
+    ".html", ".css", ".json", ".yaml", ".yml", ".toml",
+    ".sh", ".bash", ".zsh", ".rb", ".go", ".rs", ".java",
+    ".c", ".cpp", ".h", ".hpp", ".swift", ".kt",
+    ".sql", ".graphql", ".proto", ".txt", ".cfg", ".ini",
+    ".env.example", ".dockerfile", ".xml", ".svg",
+}
 _LANGUAGE_MAP = {
     ".py": "python",
     ".js": "javascript",
@@ -46,6 +53,30 @@ _LANGUAGE_MAP = {
     ".tsx": "typescript",
     ".md": "markdown",
     ".php": "php",
+    ".html": "html",
+    ".css": "css",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".rb": "ruby",
+    ".go": "go",
+    ".rs": "rust",
+    ".java": "java",
+    ".c": "c",
+    ".cpp": "cpp",
+    ".h": "c",
+    ".hpp": "cpp",
+    ".swift": "swift",
+    ".kt": "kotlin",
+    ".sql": "sql",
+    ".graphql": "graphql",
+    ".proto": "protobuf",
+    ".xml": "xml",
+    ".svg": "xml",
 }
 
 
