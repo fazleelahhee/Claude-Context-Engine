@@ -5,12 +5,24 @@ import hashlib
 import json
 from pathlib import Path
 
+from typing import Literal
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, Response
+from pydantic import BaseModel
 
 from context_engine.config import Config
 from context_engine.dashboard._page import PAGE_HTML
+from context_engine.indexer.pipeline import run_indexing
 from context_engine.storage.local_backend import LocalBackend
+
+
+class ReindexRequest(BaseModel):
+    full: bool = False
+
+
+class CompressionRequest(BaseModel):
+    level: Literal["off", "lite", "standard", "max"]
 
 
 def create_app(config: Config, project_dir: Path) -> FastAPI:
@@ -139,6 +151,54 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
             "tokens_saved": saved,
             "savings_pct": pct,
         }
+
+    # ── action routes ──────────────────────────────────────────────────────
+
+    @app.post("/api/reindex")
+    async def reindex(req: ReindexRequest) -> dict:
+        result = await run_indexing(config, project_dir, full=req.full)
+        return {
+            "total_chunks": result.total_chunks,
+            "indexed_files": result.indexed_files,
+            "deleted_files": result.deleted_files,
+            "skipped_files": result.skipped_files,
+            "errors": result.errors,
+        }
+
+    @app.post("/api/reindex/{file_path:path}")
+    async def reindex_file(file_path: str) -> dict:
+        result = await run_indexing(config, project_dir, target_path=file_path)
+        return {
+            "total_chunks": result.total_chunks,
+            "indexed_files": result.indexed_files,
+            "deleted_files": result.deleted_files,
+            "skipped_files": result.skipped_files,
+            "errors": result.errors,
+        }
+
+    @app.post("/api/clear")
+    async def clear_index() -> dict:
+        await backend.clear()
+        (storage_base / "manifest.json").write_text(json.dumps({}))
+        (storage_base / "stats.json").write_text(json.dumps(
+            {"queries": 0, "raw_tokens": 0, "served_tokens": 0, "full_file_tokens": 0}
+        ))
+        return {"ok": True}
+
+    @app.delete("/api/files/{file_path:path}")
+    async def delete_file(file_path: str) -> dict:
+        await backend.delete_by_file(file_path)
+        manifest = _read_manifest()
+        manifest.pop(file_path, None)
+        (storage_base / "manifest.json").write_text(json.dumps(manifest))
+        return {"ok": True, "deleted": file_path}
+
+    @app.post("/api/compression")
+    async def set_compression(req: CompressionRequest) -> dict:
+        state = _read_state()
+        state["output_level"] = req.level
+        (storage_base / "state.json").write_text(json.dumps(state))
+        return {"level": req.level}
 
     @app.get("/api/export")
     async def export_data():

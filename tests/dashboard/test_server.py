@@ -2,6 +2,7 @@
 import hashlib
 import json
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -187,3 +188,68 @@ def test_export_returns_combined(tmp_path):
     assert "stats" in data
     assert "manifest" in data
     assert "sessions" in data
+
+
+def test_reindex_full(tmp_path):
+    client, _ = _make_client(tmp_path)
+    mock_result = MagicMock(total_chunks=10, indexed_files=["a.py"], errors=[],
+                            deleted_files=[], skipped_files=[])
+    with patch("context_engine.dashboard.server.run_indexing", new=AsyncMock(return_value=mock_result)):
+        r = client.post("/api/reindex", json={"full": True})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total_chunks"] == 10
+    assert data["indexed_files"] == ["a.py"]
+    assert data["errors"] == []
+
+
+def test_reindex_single_file(tmp_path):
+    client, _ = _make_client(tmp_path)
+    mock_result = MagicMock(total_chunks=3, indexed_files=["src/cli.py"], errors=[],
+                            deleted_files=[], skipped_files=[])
+    with patch("context_engine.dashboard.server.run_indexing", new=AsyncMock(return_value=mock_result)):
+        r = client.post("/api/reindex/src%2Fcli.py", json={})
+    assert r.status_code == 200
+    assert r.json()["indexed_files"] == ["src/cli.py"]
+
+
+def test_clear_index(tmp_path):
+    client, storage_base = _make_client(tmp_path)
+    stats = {"queries": 5, "raw_tokens": 1000, "served_tokens": 300, "full_file_tokens": 1000}
+    (storage_base / "stats.json").write_text(json.dumps(stats))
+    manifest = {"foo.py": "hash1"}
+    (storage_base / "manifest.json").write_text(json.dumps(manifest))
+
+    r = client.post("/api/clear")
+
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert json.loads((storage_base / "manifest.json").read_text()) == {}
+    assert json.loads((storage_base / "stats.json").read_text())["queries"] == 0
+
+
+def test_delete_file(tmp_path):
+    client, storage_base = _make_client(tmp_path)
+    manifest = {"src/cli.py": "hash1", "src/config.py": "hash2"}
+    (storage_base / "manifest.json").write_text(json.dumps(manifest))
+
+    r = client.delete("/api/files/src%2Fcli.py")
+
+    assert r.status_code == 200
+    remaining = json.loads((storage_base / "manifest.json").read_text())
+    assert "src/cli.py" not in remaining
+    assert "src/config.py" in remaining
+
+
+def test_set_compression(tmp_path):
+    client, storage_base = _make_client(tmp_path)
+    r = client.post("/api/compression", json={"level": "max"})
+    assert r.status_code == 200
+    assert r.json()["level"] == "max"
+    assert json.loads((storage_base / "state.json").read_text())["output_level"] == "max"
+
+
+def test_set_compression_invalid(tmp_path):
+    client, _ = _make_client(tmp_path)
+    r = client.post("/api/compression", json={"level": "turbo"})
+    assert r.status_code == 422
