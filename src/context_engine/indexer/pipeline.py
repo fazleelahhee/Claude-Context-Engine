@@ -247,8 +247,9 @@ async def _run_indexing_locked(
         manifest.update(rel_path, content_hash)
         result.indexed_files.append(rel_path)
 
-    # Index git history on full runs
-    if full and not target_path:
+    # Index git history on full runs (skip for non-git projects)
+    _is_git = (Path(project_dir) / ".git").is_dir()
+    if full and not target_path and _is_git:
         try:
             git_chunks, git_nodes, git_edges = await index_commits(
                 project_dir, since_sha=manifest.last_git_sha

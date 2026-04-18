@@ -35,7 +35,8 @@ async def index_commits(
     )
 
     if meta_result.returncode != 0:
-        log.warning("git log failed: %s", meta_result.stderr.strip())
+        # Not a git repo — expected for non-git projects, don't warn.
+        log.debug("git log returned non-zero: %s", meta_result.stderr.strip())
         return [], [], []
 
     files_result = await asyncio.to_thread(
