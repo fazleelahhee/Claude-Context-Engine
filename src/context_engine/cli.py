@@ -253,7 +253,7 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         served = stats.get("served_tokens", 0)
         queries = stats.get("queries", 0)
         raw = stats.get("raw_tokens", 0)
-        baseline = full_file if full_file > 0 else raw
+        baseline = max(full_file, raw) if full_file > 0 else raw
         saved = max(0, baseline - served)
         used_pct = served / baseline if baseline > 0 else 0
         saved_pct = int((1 - used_pct) * 100) if baseline > 0 else 0
@@ -277,7 +277,7 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         full_file = stats.get("full_file_tokens", 0)
         raw = stats.get("raw_tokens", 0)
         served = stats.get("served_tokens", 0)
-        baseline = full_file if full_file > 0 else raw
+        baseline = max(full_file, raw) if full_file > 0 else raw
         saved = baseline - served
         return {
             "project": name,
