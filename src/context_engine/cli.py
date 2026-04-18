@@ -57,6 +57,47 @@ def _configure_mcp(project_dir: Path) -> bool:
     return True
 
 
+_CCE_CLAUDE_MD_MARKER = "## Context Engine (CCE)"
+
+_CCE_CLAUDE_MD_BLOCK = """\
+## Context Engine (CCE)
+
+This project uses Claude Context Engine for intelligent code retrieval.
+
+**Always prefer `context_search` over reading files directly** when exploring
+the codebase or answering questions about how code works. This routes queries
+through the semantic search engine, which:
+- Returns only the most relevant code chunks (not entire files)
+- Tracks token savings automatically
+- Provides confidence scores for each result
+
+Use the `Read` tool only when you need the exact, full content of a specific
+file (e.g. for editing). For exploration and understanding, use `context_search`.
+
+Other useful MCP tools:
+- `expand_chunk` — get full source for a compressed result
+- `related_context` — find what calls/imports a function
+- `session_recall` — retrieve decisions from past sessions
+- `record_decision` — persist an important decision for future sessions
+"""
+
+
+def _ensure_claude_md(project_dir: Path) -> None:
+    """Add CCE instructions to CLAUDE.md if not already present."""
+    claude_md = project_dir / "CLAUDE.md"
+    if claude_md.exists():
+        existing = claude_md.read_text()
+        if _CCE_CLAUDE_MD_MARKER in existing:
+            return  # already has CCE block
+        # Append to existing file
+        new_content = existing.rstrip() + "\n\n" + _CCE_CLAUDE_MD_BLOCK
+        claude_md.write_text(new_content)
+        click.echo("CCE instructions appended to existing CLAUDE.md.")
+    else:
+        claude_md.write_text(_CCE_CLAUDE_MD_BLOCK)
+        click.echo("CLAUDE.md created with CCE instructions.")
+
+
 @click.group()
 @click.version_option(package_name="claude-context-engine")
 @click.option("--verbose", "-v", is_flag=True, help="Enable detailed logging output")
@@ -91,6 +132,8 @@ def init(ctx: click.Context) -> None:
         click.echo("MCP server registered in .mcp.json — restart Claude Code to activate.")
     else:
         click.echo("MCP server already in .mcp.json.")
+
+    _ensure_claude_md(project_dir)
 
     is_git_repo = (project_dir / ".git").exists()
     if not is_git_repo:
