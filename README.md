@@ -1,6 +1,8 @@
 # Claude Context Engine
 
-![Claude Context Engine](docs/logo.svg)
+<p align="center">
+  <img src="docs/logo.svg" alt="Claude Context Engine" width="160">
+</p>
 
 **Make Claude understand your codebase without wasting tokens.**
 
