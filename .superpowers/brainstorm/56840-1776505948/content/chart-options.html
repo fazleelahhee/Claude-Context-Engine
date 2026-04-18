@@ -1,0 +1,347 @@
+<style>
+  :root {
+    --bg: #111217; --panel: #181b1f; --panel2: #1e2128; --border: #2d3035;
+    --text: #d8dce2; --text2: #8e97a5; --text3: #555d6b;
+    --blue: #5794f2; --green: #73bf69; --yellow: #f2cc0c;
+    --red: #f15f5f; --purple: #b877d9; --orange: #ff9830;
+    --mono: "JetBrains Mono","Fira Code",monospace;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,sans-serif; }
+  h2 { font-size: 20px; font-weight: 700; margin-bottom: 6px; }
+  .subtitle { color: var(--text2); font-size: 13px; margin-bottom: 24px; }
+
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; transition: border-color .15s, transform .1s; overflow: hidden; }
+  .card:hover { border-color: var(--blue); }
+  .card.selected { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(87,148,242,.2); }
+  .card-image { padding: 20px; background: var(--panel2); border-bottom: 1px solid var(--border); min-height: 200px; }
+  .card-body { padding: 14px 16px; }
+  .card-body h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+  .card-body p { font-size: 12px; color: var(--text2); line-height: 1.5; }
+
+  /* Mini mockup components */
+  .mock-topbar { background: #1e2128; border-bottom: 1px solid #2d3035; height: 28px; border-radius: 4px 4px 0 0; display:flex;align-items:center;padding:0 10px;gap:6px; }
+  .mock-dot { width:7px;height:7px;border-radius:50%; }
+  .mock-layout { display:flex; gap:0; height:170px; }
+  .mock-sidebar { width: 36px; background: #1e2128; border-right: 1px solid #2d3035; flex-shrink:0; }
+  .mock-main { flex:1; padding:8px; display:flex; flex-direction:column; gap:6px; overflow:hidden; }
+
+  /* Option A: Overview with donut + bar */
+  .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; }
+  .mini-panel { background: #1e2128; border:1px solid #2d3035; border-radius:3px; padding:6px; }
+  .mini-title { font-size:8px; color:#555d6b; text-transform:uppercase; letter-spacing:.5px; margin-bottom:5px; font-family:var(--mono); }
+  .mini-panel.blue { border-top: 2px solid var(--blue); }
+  .mini-panel.green { border-top: 2px solid var(--green); }
+  .mini-panel.yellow { border-top: 2px solid var(--yellow); }
+  .mini-panel.purple { border-top: 2px solid var(--purple); }
+
+  /* Donut */
+  .donut-wrap { display:flex; align-items:center; gap:8px; }
+  .donut-legend { font-size:8px; }
+  .donut-legend-item { display:flex; align-items:center; gap:3px; margin-bottom:2px; }
+  .dot { width:5px;height:5px;border-radius:50%;flex-shrink:0; }
+
+  /* Bar chart */
+  .bar-chart { display:flex; flex-direction:column; gap:3px; }
+  .bar-row { display:flex; align-items:center; gap:4px; }
+  .bar-label { font-size:7px; color:#8e97a5; width:28px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-family:var(--mono); }
+  .bar-track { flex:1; height:6px; background:#2d3035; border-radius:2px; overflow:hidden; }
+  .bar-fill { height:100%; border-radius:2px; }
+  .bar-val { font-size:7px; color:#555d6b; font-family:var(--mono); width:14px; text-align:right; }
+
+  /* Area/line chart */
+  .area-wrap { display:flex; align-items:flex-end; gap:2px; height:40px; }
+  .area-bar { flex:1; border-radius:2px 2px 0 0; min-height:2px; }
+
+  /* Gauge */
+  .gauge-center { text-align:center; }
+  .gauge-num { font-size:22px; font-weight:700; font-family:var(--mono); color:var(--green); line-height:1; }
+  .gauge-sub { font-size:7px; color:#8e97a5; }
+
+  /* Sparkline row */
+  .sparkline-row { display:flex; align-items:center; gap:6px; }
+  .spark { display:flex; align-items:flex-end; gap:1px; height:24px; }
+  .spark-bar { width:4px; border-radius:1px 1px 0 0; }
+</style>
+
+<h2>Which chart layout works best for the dashboard?</h2>
+<p class="subtitle">Choose the layout and chart style that best fits the Grafana-inspired dark theme</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-topbar">
+        <div class="mock-dot" style="background:#5794f2"></div>
+        <span style="font-size:8px;color:#8e97a5;">CCE Dashboard · my-project</span>
+        <div class="mock-dot" style="background:#73bf69;margin-left:auto;width:6px;height:6px;border-radius:50%;box-shadow:0 0 4px #73bf69"></div>
+      </div>
+      <div class="mock-layout">
+        <div class="mock-sidebar"></div>
+        <div class="mock-main">
+          <!-- stat row -->
+          <div class="grid-3" style="flex-shrink:0">
+            <div class="mini-panel blue"><div class="mini-title">Chunks</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#5794f2">1,240</div></div>
+            <div class="mini-panel green"><div class="mini-title">Saved</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#73bf69">70%</div></div>
+            <div class="mini-panel yellow"><div class="mini-title">Queries</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#f2cc0c">38</div></div>
+          </div>
+          <!-- donut + bar row -->
+          <div class="grid-2" style="flex:1;min-height:0">
+            <div class="mini-panel" style="display:flex;flex-direction:column">
+              <div class="mini-title">Token Usage</div>
+              <div class="donut-wrap" style="flex:1;align-items:center">
+                <svg width="50" height="50" viewBox="0 0 50 50" style="flex-shrink:0">
+                  <circle cx="25" cy="25" r="18" fill="none" stroke="#2d3035" stroke-width="7"/>
+                  <circle cx="25" cy="25" r="18" fill="none" stroke="#73bf69" stroke-width="7"
+                    stroke-dasharray="79.4 113.1" stroke-dashoffset="28.3" stroke-linecap="round"/>
+                  <circle cx="25" cy="25" r="18" fill="none" stroke="#5794f2" stroke-width="7"
+                    stroke-dasharray="33.9 113.1" stroke-dashoffset="-51.1" stroke-linecap="round"/>
+                  <text x="25" y="28" text-anchor="middle" font-size="9" fill="#73bf69" font-weight="700" font-family="monospace">70%</text>
+                </svg>
+                <div class="donut-legend">
+                  <div class="donut-legend-item"><div class="dot" style="background:#73bf69"></div><span style="font-size:7px;color:#8e97a5">Saved (33.8k)</span></div>
+                  <div class="donut-legend-item"><div class="dot" style="background:#5794f2"></div><span style="font-size:7px;color:#8e97a5">Used (14.2k)</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="mini-panel" style="display:flex;flex-direction:column">
+              <div class="mini-title">Top Files by Chunks</div>
+              <div class="bar-chart" style="flex:1;justify-content:center">
+                <div class="bar-row"><span class="bar-label">cli.py</span><div class="bar-track"><div class="bar-fill" style="width:90%;background:var(--blue)"></div></div><span class="bar-val">42</span></div>
+                <div class="bar-row"><span class="bar-label">mcp_srv</span><div class="bar-track"><div class="bar-fill" style="width:72%;background:var(--blue)"></div></div><span class="bar-val">34</span></div>
+                <div class="bar-row"><span class="bar-label">pipeline</span><div class="bar-track"><div class="bar-fill" style="width:60%;background:var(--blue)"></div></div><span class="bar-val">28</span></div>
+                <div class="bar-row"><span class="bar-label">retriev.</span><div class="bar-track"><div class="bar-fill" style="width:45%;background:var(--purple)"></div></div><span class="bar-val">21</span></div>
+                <div class="bar-row"><span class="bar-label">config</span><div class="bar-track"><div class="bar-fill" style="width:30%;background:var(--purple)"></div></div><span class="bar-val">14</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Donut + Horizontal Bar</h3>
+      <p>Token savings as an SVG donut chart. Top files ranked by chunk count as a horizontal bar. Stat cards stay at the top. Clean, information-dense layout — classic Grafana style.</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-topbar">
+        <div class="mock-dot" style="background:#5794f2"></div>
+        <span style="font-size:8px;color:#8e97a5;">CCE Dashboard · my-project</span>
+        <div class="mock-dot" style="background:#73bf69;margin-left:auto;width:6px;height:6px;border-radius:50%;box-shadow:0 0 4px #73bf69"></div>
+      </div>
+      <div class="mock-layout">
+        <div class="mock-sidebar"></div>
+        <div class="mock-main">
+          <!-- full width area chart -->
+          <div class="mini-panel" style="flex-shrink:0">
+            <div class="mini-title">Query Activity (last 7 sessions)</div>
+            <div class="area-wrap" style="height:32px;align-items:flex-end">
+              <div class="area-bar" style="height:20%;background:rgba(87,148,242,.3)"></div>
+              <div class="area-bar" style="height:40%;background:rgba(87,148,242,.4)"></div>
+              <div class="area-bar" style="height:60%;background:rgba(87,148,242,.5)"></div>
+              <div class="area-bar" style="height:35%;background:rgba(87,148,242,.4)"></div>
+              <div class="area-bar" style="height:80%;background:rgba(87,148,242,.6)"></div>
+              <div class="area-bar" style="height:55%;background:rgba(87,148,242,.5)"></div>
+              <div class="area-bar" style="height:100%;background:#5794f2"></div>
+            </div>
+          </div>
+          <!-- 3-col bottom row -->
+          <div class="grid-3" style="flex:1;min-height:0">
+            <div class="mini-panel green" style="display:flex;flex-direction:column;align-items:center;justify-content:center">
+              <div class="mini-title">Savings</div>
+              <!-- radial gauge -->
+              <svg width="52" height="30" viewBox="0 0 52 30">
+                <path d="M5 28 A21 21 0 0 1 47 28" fill="none" stroke="#2d3035" stroke-width="5" stroke-linecap="round"/>
+                <path d="M5 28 A21 21 0 0 1 47 28" fill="none" stroke="#73bf69" stroke-width="5" stroke-linecap="round" stroke-dasharray="65.97 65.97" stroke-dashoffset="19.79"/>
+                <text x="26" y="24" text-anchor="middle" font-size="9" fill="#73bf69" font-weight="700" font-family="monospace">70%</text>
+              </svg>
+            </div>
+            <div class="mini-panel blue" style="display:flex;flex-direction:column">
+              <div class="mini-title">File Health</div>
+              <div style="display:flex;align-items:flex-end;gap:4px;flex:1;justify-content:center;padding-bottom:4px">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+                  <div style="width:14px;background:var(--green);border-radius:2px 2px 0 0;height:35px"></div>
+                  <span style="font-size:6px;color:#8e97a5">ok</span>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+                  <div style="width:14px;background:var(--yellow);border-radius:2px 2px 0 0;height:14px"></div>
+                  <span style="font-size:6px;color:#8e97a5">stale</span>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+                  <div style="width:14px;background:var(--red);border-radius:2px 2px 0 0;height:5px"></div>
+                  <span style="font-size:6px;color:#8e97a5">miss</span>
+                </div>
+              </div>
+            </div>
+            <div class="mini-panel yellow" style="display:flex;flex-direction:column">
+              <div class="mini-title">Token Trend</div>
+              <div class="spark" style="align-items:flex-end;height:35px;justify-content:center;flex:1">
+                <div class="spark-bar" style="height:30%;background:rgba(242,204,12,.4)"></div>
+                <div class="spark-bar" style="height:50%;background:rgba(242,204,12,.5)"></div>
+                <div class="spark-bar" style="height:40%;background:rgba(242,204,12,.5)"></div>
+                <div class="spark-bar" style="height:70%;background:rgba(242,204,12,.6)"></div>
+                <div class="spark-bar" style="height:60%;background:rgba(242,204,12,.6)"></div>
+                <div class="spark-bar" style="height:90%;background:#f2cc0c"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Area + Gauge + Mini Bar Columns</h3>
+      <p>Full-width bar chart for session query activity at top. Three mini panels below: a radial gauge for savings %, a grouped bar chart for file health, and a sparkline for token usage trend.</p>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-topbar">
+        <div class="mock-dot" style="background:#5794f2"></div>
+        <span style="font-size:8px;color:#8e97a5;">CCE Dashboard · my-project</span>
+        <div class="mock-dot" style="background:#73bf69;margin-left:auto;width:6px;height:6px;border-radius:50%;box-shadow:0 0 4px #73bf69"></div>
+      </div>
+      <div class="mock-layout">
+        <div class="mock-sidebar"></div>
+        <div class="mock-main">
+          <!-- stat row with sparklines embedded -->
+          <div class="grid-3" style="flex-shrink:0">
+            <div class="mini-panel blue" style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div><div class="mini-title">Chunks</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#5794f2">1,240</div></div>
+              <div class="spark" style="align-items:flex-end;height:20px">
+                <div class="spark-bar" style="height:40%;background:rgba(87,148,242,.4)"></div>
+                <div class="spark-bar" style="height:60%;background:rgba(87,148,242,.5)"></div>
+                <div class="spark-bar" style="height:50%;background:rgba(87,148,242,.5)"></div>
+                <div class="spark-bar" style="height:80%;background:rgba(87,148,242,.7)"></div>
+                <div class="spark-bar" style="height:100%;background:#5794f2"></div>
+              </div>
+            </div>
+            <div class="mini-panel green" style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div><div class="mini-title">Saved</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#73bf69">70%</div></div>
+              <!-- mini ring -->
+              <svg width="28" height="28" viewBox="0 0 28 28">
+                <circle cx="14" cy="14" r="10" fill="none" stroke="#2d3035" stroke-width="4"/>
+                <circle cx="14" cy="14" r="10" fill="none" stroke="#73bf69" stroke-width="4" stroke-dasharray="44 62.8" stroke-dashoffset="15.7"/>
+              </svg>
+            </div>
+            <div class="mini-panel yellow" style="display:flex;justify-content:space-between;align-items:flex-start">
+              <div><div class="mini-title">Queries</div><div style="font-size:14px;font-weight:700;font-family:var(--mono);color:#f2cc0c">38</div></div>
+              <div class="spark" style="align-items:flex-end;height:20px">
+                <div class="spark-bar" style="height:20%;background:rgba(242,204,12,.3)"></div>
+                <div class="spark-bar" style="height:60%;background:rgba(242,204,12,.5)"></div>
+                <div class="spark-bar" style="height:45%;background:rgba(242,204,12,.5)"></div>
+                <div class="spark-bar" style="height:80%;background:rgba(242,204,12,.6)"></div>
+                <div class="spark-bar" style="height:100%;background:#f2cc0c"></div>
+              </div>
+            </div>
+          </div>
+          <!-- full-width stacked bar -->
+          <div class="mini-panel" style="flex-shrink:0">
+            <div class="mini-title">Token budget — used vs saved</div>
+            <div style="height:10px;border-radius:3px;overflow:hidden;display:flex;margin-top:4px">
+              <div style="width:30%;background:#5794f2;"></div>
+              <div style="flex:1;background:#73bf69;"></div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:3px">
+              <span style="font-size:7px;color:#8e97a5">14.2k used (30%)</span>
+              <span style="font-size:7px;color:#73bf69">33.8k saved (70%)</span>
+            </div>
+          </div>
+          <!-- horizontal bar -->
+          <div class="mini-panel" style="flex:1;min-height:0">
+            <div class="mini-title">Files by chunk count</div>
+            <div class="bar-chart">
+              <div class="bar-row"><span class="bar-label">cli.py</span><div class="bar-track"><div class="bar-fill" style="width:90%;background:linear-gradient(90deg,var(--blue),var(--purple))"></div></div><span class="bar-val">42</span></div>
+              <div class="bar-row"><span class="bar-label">mcp_srv</span><div class="bar-track"><div class="bar-fill" style="width:72%;background:linear-gradient(90deg,var(--blue),var(--purple))"></div></div><span class="bar-val">34</span></div>
+              <div class="bar-row"><span class="bar-label">pipeline</span><div class="bar-track"><div class="bar-fill" style="width:55%;background:linear-gradient(90deg,var(--blue),var(--purple))"></div></div><span class="bar-val">28</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Sparklines in Stat Cards + Stacked Progress Bar</h3>
+      <p>Stat cards get embedded sparklines and a mini ring gauge. Full-width stacked progress bar shows the token budget split. Horizontal bar chart below for file chunks. Very compact and data-rich.</p>
+    </div>
+  </div>
+
+  <!-- Option D -->
+  <div class="card" data-choice="d" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div class="mock-topbar">
+        <div class="mock-dot" style="background:#5794f2"></div>
+        <span style="font-size:8px;color:#8e97a5;">CCE Dashboard · my-project</span>
+        <div class="mock-dot" style="background:#73bf69;margin-left:auto;width:6px;height:6px;border-radius:50%;box-shadow:0 0 4px #73bf69"></div>
+      </div>
+      <div class="mock-layout">
+        <div class="mock-sidebar"></div>
+        <div class="mock-main">
+          <!-- 4-panel grid -->
+          <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;flex:1">
+            <!-- top-left: big donut -->
+            <div class="mini-panel green" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px">
+              <div class="mini-title">Token Savings</div>
+              <svg width="70" height="70" viewBox="0 0 70 70">
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#1e2128" stroke-width="10"/>
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#73bf69" stroke-width="10"
+                  stroke-dasharray="114.7 163.4" stroke-dashoffset="40.8" stroke-linecap="round"/>
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#5794f2" stroke-width="10"
+                  stroke-dasharray="48.9 163.4" stroke-dashoffset="-73.9" stroke-linecap="round"/>
+                <text x="35" y="32" text-anchor="middle" font-size="12" fill="#73bf69" font-weight="700" font-family="monospace">70%</text>
+                <text x="35" y="43" text-anchor="middle" font-size="7" fill="#8e97a5">saved</text>
+              </svg>
+            </div>
+            <!-- top-right: file health donut -->
+            <div class="mini-panel blue" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px">
+              <div class="mini-title">File Health</div>
+              <svg width="70" height="70" viewBox="0 0 70 70">
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#1e2128" stroke-width="10"/>
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#73bf69" stroke-width="10"
+                  stroke-dasharray="130" stroke-dashoffset="40.8" stroke-linecap="round"/>
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#f2cc0c" stroke-width="10"
+                  stroke-dasharray="25" stroke-dashoffset="-89" stroke-linecap="round"/>
+                <circle cx="35" cy="35" r="26" fill="none" stroke="#f15f5f" stroke-width="10"
+                  stroke-dasharray="8" stroke-dashoffset="-114" stroke-linecap="round"/>
+                <text x="35" y="32" text-anchor="middle" font-size="12" fill="#73bf69" font-weight="700" font-family="monospace">48</text>
+                <text x="35" y="43" text-anchor="middle" font-size="7" fill="#8e97a5">files</text>
+              </svg>
+            </div>
+            <!-- bottom-left: bar chart -->
+            <div class="mini-panel" style="display:flex;flex-direction:column">
+              <div class="mini-title">Top files · chunks</div>
+              <div class="bar-chart" style="flex:1;justify-content:center">
+                <div class="bar-row"><span class="bar-label">cli.py</span><div class="bar-track"><div class="bar-fill" style="width:90%;background:var(--blue)"></div></div><span class="bar-val">42</span></div>
+                <div class="bar-row"><span class="bar-label">mcp_srv</span><div class="bar-track"><div class="bar-fill" style="width:72%;background:var(--blue)"></div></div><span class="bar-val">34</span></div>
+                <div class="bar-row"><span class="bar-label">pipeline</span><div class="bar-track"><div class="bar-fill" style="width:55%;background:var(--purple)"></div></div><span class="bar-val">28</span></div>
+              </div>
+            </div>
+            <!-- bottom-right: session bars -->
+            <div class="mini-panel" style="display:flex;flex-direction:column">
+              <div class="mini-title">Sessions · decisions</div>
+              <div class="area-wrap" style="flex:1;align-items:flex-end;padding-bottom:2px">
+                <div class="area-bar" style="height:30%;background:rgba(184,119,217,.4)"></div>
+                <div class="area-bar" style="height:60%;background:rgba(184,119,217,.5)"></div>
+                <div class="area-bar" style="height:45%;background:rgba(184,119,217,.5)"></div>
+                <div class="area-bar" style="height:80%;background:rgba(184,119,217,.6)"></div>
+                <div class="area-bar" style="height:100%;background:#b877d9"></div>
+                <div class="area-bar" style="height:65%;background:rgba(184,119,217,.5)"></div>
+                <div class="area-bar" style="height:90%;background:rgba(184,119,217,.7)"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>D — 2×2 Chart Grid (All Charts)</h3>
+      <p>Four equal panels, each a chart. Top row: token savings donut + file health donut. Bottom row: horizontal bar (top files) + bar chart (session decisions). Grafana panel grid aesthetic.</p>
+    </div>
+  </div>
+
+</div>

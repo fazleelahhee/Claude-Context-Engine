@@ -1,0 +1,81 @@
+<h2>Dashboard Layout</h2>
+<p class="subtitle">Which structure fits a developer inspection tool best?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="display:flex;height:160px;background:#0d1117;border-radius:6px;overflow:hidden;font-size:11px;">
+        <div style="width:130px;background:#161b22;padding:10px 8px;border-right:1px solid #30363d;flex-shrink:0;">
+          <div style="color:#58a6ff;font-weight:700;margin-bottom:12px;font-size:12px;">CCE</div>
+          <div style="background:#1f6feb22;border-radius:4px;padding:4px 8px;margin-bottom:4px;color:#58a6ff;font-size:10px;">Overview</div>
+          <div style="padding:4px 8px;margin-bottom:4px;color:#8b949e;font-size:10px;">Files</div>
+          <div style="padding:4px 8px;margin-bottom:4px;color:#8b949e;font-size:10px;">Sessions</div>
+          <div style="padding:4px 8px;color:#8b949e;font-size:10px;">Savings</div>
+        </div>
+        <div style="flex:1;padding:10px;color:#c9d1d9;">
+          <div style="font-size:11px;color:#8b949e;margin-bottom:8px;">my-project</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <div style="background:#161b22;border-radius:4px;padding:6px;font-size:10px;border:1px solid #30363d;"><div style="color:#3fb950;font-size:14px;font-weight:700;">243</div><div style="color:#8b949e;">chunks</div></div>
+            <div style="background:#161b22;border-radius:4px;padding:6px;font-size:10px;border:1px solid #30363d;"><div style="color:#58a6ff;font-size:14px;font-weight:700;">70%</div><div style="color:#8b949e;">saved</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Sidebar + Main</h3>
+      <p>Persistent left nav with sections. Each section is its own page. Good for navigating between views.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:160px;background:#0d1117;border-radius:6px;overflow:hidden;padding:10px;font-size:10px;color:#c9d1d9;">
+        <div style="display:flex;gap:6px;margin-bottom:8px;">
+          <div style="flex:1;background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;"><div style="color:#3fb950;font-size:13px;font-weight:700;">243</div><div style="color:#8b949e;">chunks</div></div>
+          <div style="flex:1;background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;"><div style="color:#58a6ff;font-size:13px;font-weight:700;">70%</div><div style="color:#8b949e;">saved</div></div>
+          <div style="flex:1;background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;"><div style="color:#e3b341;font-size:13px;font-weight:700;">38</div><div style="color:#8b949e;">queries</div></div>
+        </div>
+        <div style="background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;margin-bottom:6px;">
+          <div style="color:#8b949e;font-size:9px;margin-bottom:4px;">INDEX HEALTH</div>
+          <div style="display:flex;gap:4px;flex-wrap:wrap;">
+            <span style="background:#1a3a1a;color:#3fb950;padding:2px 5px;border-radius:3px;font-size:9px;">37 ok</span>
+            <span style="background:#3a2a1a;color:#e3b341;padding:2px 5px;border-radius:3px;font-size:9px;">2 stale</span>
+          </div>
+        </div>
+        <div style="background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;">
+          <div style="color:#8b949e;font-size:9px;">RECENT SESSIONS</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Single Scrolling Page</h3>
+      <p>All sections stacked vertically. No navigation. Scroll to see everything. Fast to scan.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="height:160px;background:#0d1117;border-radius:6px;overflow:hidden;font-size:10px;color:#c9d1d9;">
+        <div style="display:flex;border-bottom:1px solid #30363d;padding:0 10px;background:#161b22;">
+          <div style="padding:8px 10px;color:#58a6ff;border-bottom:2px solid #58a6ff;font-size:10px;">Overview</div>
+          <div style="padding:8px 10px;color:#8b949e;font-size:10px;">Files</div>
+          <div style="padding:8px 10px;color:#8b949e;font-size:10px;">Sessions</div>
+          <div style="padding:8px 10px;color:#8b949e;font-size:10px;">Savings</div>
+        </div>
+        <div style="padding:10px;">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;">
+            <div style="background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;"><div style="color:#3fb950;font-size:14px;font-weight:700;">243</div><div style="color:#8b949e;font-size:9px;">chunks</div></div>
+            <div style="background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;"><div style="color:#58a6ff;font-size:14px;font-weight:700;">70%</div><div style="color:#8b949e;font-size:9px;">saved</div></div>
+            <div style="background:#161b22;border-radius:4px;padding:6px;border:1px solid #30363d;"><div style="color:#e3b341;font-size:14px;font-weight:700;">38</div><div style="color:#8b949e;font-size:9px;">queries</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Tabbed Navigation</h3>
+      <p>Top tabs switch between sections. Overview always first. Clean separation, no sidebar space used.</p>
+    </div>
+  </div>
+
+</div>

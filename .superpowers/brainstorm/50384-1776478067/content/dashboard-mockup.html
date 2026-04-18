@@ -1,0 +1,196 @@
+<h2>Dashboard Mockup</h2>
+<p class="subtitle">Full design — tabbed, dark theme matching CCE. Click through the tabs below.</p>
+
+<div class="mockup" style="max-width:860px;margin:0 auto;">
+  <div class="mockup-header">cce dashboard — my-project</div>
+  <div class="mockup-body" style="padding:0;background:#0d1117;font-family:system-ui,sans-serif;font-size:13px;color:#c9d1d9;min-height:420px;">
+
+    <!-- Tab bar -->
+    <div id="tabs" style="display:flex;border-bottom:1px solid #30363d;background:#161b22;padding:0 16px;">
+      <div class="tab active" data-tab="overview" onclick="switchTab('overview')" style="padding:10px 16px;cursor:pointer;border-bottom:2px solid #58a6ff;color:#58a6ff;font-size:12px;">Overview</div>
+      <div class="tab" data-tab="files" onclick="switchTab('files')" style="padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;color:#8b949e;font-size:12px;">Files</div>
+      <div class="tab" data-tab="sessions" onclick="switchTab('sessions')" style="padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;color:#8b949e;font-size:12px;">Sessions</div>
+      <div class="tab" data-tab="savings" onclick="switchTab('savings')" style="padding:10px 16px;cursor:pointer;border-bottom:2px solid transparent;color:#8b949e;font-size:12px;">Savings</div>
+    </div>
+
+    <!-- Overview Tab -->
+    <div id="tab-overview" style="padding:16px;display:block;">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="color:#3fb950;font-size:22px;font-weight:700;">243</div>
+          <div style="color:#8b949e;font-size:11px;margin-top:2px;">chunks indexed</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="color:#58a6ff;font-size:22px;font-weight:700;">39</div>
+          <div style="color:#8b949e;font-size:11px;margin-top:2px;">files indexed</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="color:#e3b341;font-size:22px;font-weight:700;">38</div>
+          <div style="color:#8b949e;font-size:11px;margin-top:2px;">queries run</div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="color:#a5d6ff;font-size:22px;font-weight:700;">70%</div>
+          <div style="color:#8b949e;font-size:11px;margin-top:2px;">tokens saved</div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Index Health</div>
+          <div style="display:flex;flex-direction:column;gap:5px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#c9d1d9;font-size:12px;">Up to date</span>
+              <span style="background:#1a3a1a;color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;">37 files</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#c9d1d9;font-size:12px;">Stale</span>
+              <span style="background:#3a2e1a;color:#e3b341;padding:2px 8px;border-radius:10px;font-size:11px;">2 files</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <span style="color:#c9d1d9;font-size:12px;">Not indexed</span>
+              <span style="background:#2a1a1a;color:#f85149;padding:2px 8px;border-radius:10px;font-size:11px;">0 files</span>
+            </div>
+          </div>
+          <div style="margin-top:10px;display:flex;gap:6px;">
+            <button onclick="void(0)" style="background:#1f6feb;border:none;color:#fff;padding:5px 12px;border-radius:5px;font-size:11px;cursor:pointer;">Reindex changed</button>
+            <button onclick="void(0)" style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:5px 12px;border-radius:5px;font-size:11px;cursor:pointer;">Full reindex</button>
+          </div>
+        </div>
+
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Recent Sessions</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="border-bottom:1px solid #21262d;padding-bottom:5px;">
+              <div style="color:#c9d1d9;font-size:12px;">fix auth middleware</div>
+              <div style="color:#8b949e;font-size:10px;">2 decisions · 3 code areas · 12 min ago</div>
+            </div>
+            <div style="border-bottom:1px solid #21262d;padding-bottom:5px;">
+              <div style="color:#c9d1d9;font-size:12px;">add savings command</div>
+              <div style="color:#8b949e;font-size:10px;">1 decision · 5 code areas · 2h ago</div>
+            </div>
+            <div>
+              <div style="color:#c9d1d9;font-size:12px;">refactor retriever</div>
+              <div style="color:#8b949e;font-size:10px;">3 decisions · 2 code areas · yesterday</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Files Tab -->
+    <div id="tab-files" style="padding:16px;display:none;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <input placeholder="Filter files..." style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 10px;border-radius:5px;font-size:12px;width:220px;outline:none;" />
+        <div style="display:flex;gap:6px;">
+          <button style="background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:5px 10px;border-radius:5px;font-size:11px;cursor:pointer;">Export JSON</button>
+          <button style="background:#da3633;border:none;color:#fff;padding:5px 10px;border-radius:5px;font-size:11px;cursor:pointer;">Clear index</button>
+        </div>
+      </div>
+      <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;overflow:hidden;">
+        <div style="display:grid;grid-template-columns:3fr 1fr 1fr 80px;padding:8px 12px;background:#21262d;color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px;gap:8px;">
+          <div>File</div><div>Chunks</div><div>Status</div><div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:3fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #21262d;font-size:12px;align-items:center;gap:8px;">
+          <div style="color:#58a6ff;">src/context_engine/cli.py</div>
+          <div style="color:#8b949e;">12</div>
+          <div><span style="background:#1a3a1a;color:#3fb950;padding:2px 7px;border-radius:10px;font-size:10px;">ok</span></div>
+          <div style="display:flex;gap:4px;"><button style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;">↺</button><button style="background:#21262d;border:1px solid #30363d;color:#f85149;padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;">✕</button></div>
+        </div>
+        <div style="display:grid;grid-template-columns:3fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #21262d;font-size:12px;align-items:center;gap:8px;">
+          <div style="color:#58a6ff;">src/context_engine/retrieval/retriever.py</div>
+          <div style="color:#8b949e;">8</div>
+          <div><span style="background:#3a2e1a;color:#e3b341;padding:2px 7px;border-radius:10px;font-size:10px;">stale</span></div>
+          <div style="display:flex;gap:4px;"><button style="background:#1f6feb;border:none;color:#fff;padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;">↺</button><button style="background:#21262d;border:1px solid #30363d;color:#f85149;padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;">✕</button></div>
+        </div>
+        <div style="display:grid;grid-template-columns:3fr 1fr 1fr 80px;padding:8px 12px;border-top:1px solid #21262d;font-size:12px;align-items:center;gap:8px;">
+          <div style="color:#58a6ff;">src/context_engine/indexer/pipeline.py</div>
+          <div style="color:#8b949e;">15</div>
+          <div><span style="background:#1a3a1a;color:#3fb950;padding:2px 7px;border-radius:10px;font-size:10px;">ok</span></div>
+          <div style="display:flex;gap:4px;"><button style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;">↺</button><button style="background:#21262d;border:1px solid #30363d;color:#f85149;padding:3px 7px;border-radius:4px;font-size:10px;cursor:pointer;">✕</button></div>
+        </div>
+        <div style="padding:6px 12px;border-top:1px solid #21262d;color:#8b949e;font-size:11px;text-align:center;">+ 36 more files</div>
+      </div>
+    </div>
+
+    <!-- Sessions Tab -->
+    <div id="tab-sessions" style="padding:16px;display:none;">
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div>
+              <div style="color:#c9d1d9;font-size:13px;font-weight:600;">fix auth middleware</div>
+              <div style="color:#8b949e;font-size:11px;margin-top:2px;">12 min ago · 2 decisions · 3 code areas</div>
+            </div>
+            <span style="background:#1a3a1a;color:#3fb950;padding:2px 8px;border-radius:10px;font-size:10px;">active</span>
+          </div>
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid #21262d;">
+            <div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px;">Decisions</div>
+            <div style="color:#c9d1d9;font-size:11px;padding:4px 8px;background:#21262d;border-radius:4px;margin-bottom:3px;">Use JWT over sessions — stateless scales better across workers</div>
+            <div style="color:#c9d1d9;font-size:11px;padding:4px 8px;background:#21262d;border-radius:4px;">Validate token on every request, not just auth routes</div>
+          </div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;">
+          <div style="display:flex;justify-content:space-between;">
+            <div>
+              <div style="color:#c9d1d9;font-size:13px;font-weight:600;">add savings command</div>
+              <div style="color:#8b949e;font-size:11px;margin-top:2px;">2h ago · 1 decision · 5 code areas</div>
+            </div>
+            <span style="background:#21262d;color:#8b949e;padding:2px 8px;border-radius:10px;font-size:10px;">closed</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Savings Tab -->
+    <div id="tab-savings" style="padding:16px;display:none;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px;">
+          <div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Token Usage</div>
+          <div style="margin-bottom:6px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;"><span style="color:#c9d1d9;">With CCE</span><span style="color:#58a6ff;">14,200</span></div>
+            <div style="background:#21262d;border-radius:3px;height:6px;"><div style="background:#58a6ff;height:6px;border-radius:3px;width:30%;"></div></div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;"><span style="color:#8b949e;">Without CCE</span><span style="color:#8b949e;">48,000</span></div>
+            <div style="background:#21262d;border-radius:3px;height:6px;"><div style="background:#30363d;height:6px;border-radius:3px;width:100%;"></div></div>
+          </div>
+          <div style="margin-top:10px;padding-top:8px;border-top:1px solid #21262d;display:flex;justify-content:space-between;font-size:12px;">
+            <span style="color:#8b949e;">Saved</span>
+            <span style="color:#3fb950;font-weight:600;">33,800 tokens (70%)</span>
+          </div>
+        </div>
+        <div style="background:#161b22;border:1px solid #30363d;border-radius:6px;padding:14px;">
+          <div style="color:#8b949e;font-size:10px;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Compression Settings</div>
+          <div style="margin-bottom:8px;">
+            <div style="color:#8b949e;font-size:11px;margin-bottom:4px;">Output compression</div>
+            <div style="display:flex;gap:4px;">
+              <button style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:4px 9px;border-radius:4px;font-size:11px;cursor:pointer;">off</button>
+              <button style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:4px 9px;border-radius:4px;font-size:11px;cursor:pointer;">lite</button>
+              <button style="background:#1f6feb;border:none;color:#fff;padding:4px 9px;border-radius:4px;font-size:11px;cursor:pointer;">standard</button>
+              <button style="background:#21262d;border:1px solid #30363d;color:#8b949e;padding:4px 9px;border-radius:4px;font-size:11px;cursor:pointer;">max</button>
+            </div>
+          </div>
+          <div style="color:#8b949e;font-size:11px;margin-bottom:4px;">38 queries across this session</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => {
+    if (t.dataset.tab === name) {
+      t.style.color = '#58a6ff';
+      t.style.borderBottom = '2px solid #58a6ff';
+    } else {
+      t.style.color = '#8b949e';
+      t.style.borderBottom = '2px solid transparent';
+    }
+  });
+  ['overview','files','sessions','savings'].forEach(t => {
+    document.getElementById('tab-' + t).style.display = t === name ? 'block' : 'none';
+  });
+}
+</script>
