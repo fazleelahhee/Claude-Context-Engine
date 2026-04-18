@@ -99,16 +99,34 @@ class ContextEngineMCP:
 
     def _save_stats(self) -> None:
         try:
-            self._stats_path.write_text(json.dumps(self._stats))
-        except Exception:
-            pass
+            data = json.dumps(self._stats)
+            self._stats_path.write_text(data)
+        except Exception as exc:
+            self._append_error_log(f"_save_stats failed: {exc}")
 
     def _append_query_log(self) -> None:
         import datetime
         try:
+            # Verify the write actually landed
+            on_disk = self._stats_path.read_text() if self._stats_path.exists() else "missing"
             log_path = self._storage_base / "query.log"
             q = self._stats["queries"]
-            entry = f"{datetime.datetime.now().isoformat()} query #{q} stats_written={self._stats_path} cwd={self._project_dir}\n"
+            entry = (
+                f"{datetime.datetime.now().isoformat()} query #{q} "
+                f"stats_written={self._stats_path} "
+                f"disk_queries={on_disk} "
+                f"cwd={self._project_dir}\n"
+            )
+            with log_path.open("a") as f:
+                f.write(entry)
+        except OSError:
+            pass
+
+    def _append_error_log(self, msg: str) -> None:
+        import datetime
+        try:
+            log_path = self._storage_base / "query.log"
+            entry = f"{datetime.datetime.now().isoformat()} ERROR {msg}\n"
             with log_path.open("a") as f:
                 f.write(entry)
         except OSError:
