@@ -59,3 +59,10 @@ async def test_retrieve_sorts_by_confidence(seeded_retriever):
 async def test_retrieve_respects_top_k(seeded_retriever):
     results = await seeded_retriever.retrieve("function", top_k=2)
     assert len(results) <= 2
+
+@pytest.mark.asyncio
+async def test_retrieve_with_max_tokens(seeded_retriever):
+    """Token packing respects budget."""
+    results = await seeded_retriever.retrieve("function", top_k=10, max_tokens=50)
+    total_tokens = sum(c.token_count for c in results)
+    assert total_tokens <= 50

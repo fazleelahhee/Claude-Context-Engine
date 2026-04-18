@@ -138,6 +138,7 @@ class ContextEngineMCP:
                         "properties": {
                             "query": {"type": "string"},
                             "top_k": {"type": "integer", "default": 10},
+                            "max_tokens": {"type": "integer", "default": 8000},
                         },
                         "required": ["query"],
                     },
@@ -270,11 +271,17 @@ class ContextEngineMCP:
                 )
             ]
         top_k = _clamp_top_k(args.get("top_k", 10))
+        max_tokens = args.get("max_tokens", 8000)
+        try:
+            max_tokens = int(max_tokens)
+        except (TypeError, ValueError):
+            max_tokens = 8000
 
         chunks = await self._retriever.retrieve(
             query,
             top_k=top_k,
             confidence_threshold=self._config.retrieval_confidence_threshold,
+            max_tokens=max_tokens,
         )
         chunks = await self._compressor.compress(chunks, self._config.compression_level)
         results = []
@@ -342,11 +349,7 @@ class ContextEngineMCP:
             return [
                 TextContent(
                     type="text",
-                    text=(
-                        "No related context found. (Graph traversal is not "
-                        "currently wired — related code will return empty. "
-                        "Use `context_search` for semantic lookups instead.)"
-                    ),
+                    text="No related context found for this chunk.",
                 )
             ]
         lines = [

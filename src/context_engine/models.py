@@ -62,6 +62,13 @@ class Chunk:
     confidence_score: float = 0.0
     compressed_content: str | None = None
 
+    _CHARS_PER_TOKEN_CODE = 3.3
+
+    @property
+    def token_count(self) -> int:
+        text = self.compressed_content or self.content
+        return max(1, int(len(text) / self._CHARS_PER_TOKEN_CODE))
+
 
 @dataclass
 class GraphNode:

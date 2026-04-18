@@ -14,8 +14,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
 
+import subprocess
+
 from context_engine.indexer.chunker import Chunker
 from context_engine.indexer.embedder import Embedder
+from context_engine.indexer.git_indexer import index_commits
 from context_engine.indexer.manifest import Manifest
 from context_engine.models import GraphNode, GraphEdge, NodeType, EdgeType
 from context_engine.storage.local_backend import LocalBackend
@@ -183,7 +186,7 @@ async def _run_indexing_locked(
         language = _LANGUAGE_MAP.get(file_path.suffix, "plaintext")
         t0 = time.monotonic()
         try:
-            chunks = chunker.chunk(content, file_path=rel_path, language=language)
+            chunks, imported_modules = chunker.chunk_with_imports(content, file_path=rel_path, language=language)
         except Exception as exc:  # pragma: no cover - defensive
             result.errors.append(f"Chunking failed for {rel_path}: {exc}")
             log.warning("Chunking failed for %s", rel_path, exc_info=exc)
@@ -203,6 +206,17 @@ async def _run_indexing_locked(
             file_path=rel_path,
         )
         all_nodes.append(file_node)
+
+        # Add IMPORTS edges for detected import statements
+        for module in imported_modules:
+            all_edges.append(
+                GraphEdge(
+                    source_id=file_node.id,
+                    target_id=f"module_{module}",
+                    edge_type=EdgeType.IMPORTS,
+                )
+            )
+
         for chunk in chunks:
             node_type = (
                 NodeType.FUNCTION
@@ -232,6 +246,28 @@ async def _run_indexing_locked(
         all_chunks.extend(chunks)
         manifest.update(rel_path, content_hash)
         result.indexed_files.append(rel_path)
+
+    # Index git history on full runs
+    if full and not target_path:
+        try:
+            git_chunks, git_nodes, git_edges = await index_commits(
+                project_dir, since_sha=manifest.last_git_sha
+            )
+            all_chunks.extend(git_chunks)
+            all_nodes.extend(git_nodes)
+            all_edges.extend(git_edges)
+            if git_chunks:
+                head_result = await asyncio.to_thread(
+                    subprocess.run,
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=project_dir, capture_output=True, text=True, check=False,
+                )
+                if head_result.returncode == 0:
+                    manifest.last_git_sha = head_result.stdout.strip()
+                if log_fn:
+                    log_fn(f"  [git] {len(git_chunks)} commit(s) indexed")
+        except Exception as exc:
+            log.warning("Git history indexing failed: %s", exc)
 
     if all_chunks:
         # Embedding is where first-run model downloads happen; isolate failures

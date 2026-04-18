@@ -1,0 +1,34 @@
+[
+    {
+        "query": "How does the chunker split code into chunks?",
+        "expected_files": ["src/context_engine/indexer/chunker.py"]
+    },
+    {
+        "query": "vector search implementation",
+        "expected_files": ["src/context_engine/storage/vector_store.py"]
+    },
+    {
+        "query": "confidence scoring formula",
+        "expected_files": ["src/context_engine/retrieval/confidence.py"]
+    },
+    {
+        "query": "MCP server tools",
+        "expected_files": ["src/context_engine/integration/mcp_server.py"]
+    },
+    {
+        "query": "how does indexing pipeline work",
+        "expected_files": ["src/context_engine/indexer/pipeline.py"]
+    },
+    {
+        "query": "FTS5 full text search",
+        "expected_files": ["src/context_engine/storage/fts_store.py"]
+    },
+    {
+        "query": "graph neighbors query",
+        "expected_files": ["src/context_engine/storage/graph_store.py"]
+    },
+    {
+        "query": "git commit history indexing",
+        "expected_files": ["src/context_engine/indexer/git_indexer.py"]
+    }
+]
