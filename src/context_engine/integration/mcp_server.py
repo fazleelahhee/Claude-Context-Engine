@@ -349,11 +349,7 @@ class ContextEngineMCP:
             return [
                 TextContent(
                     type="text",
-                    text=(
-                        "No related context found. (Graph traversal is not "
-                        "currently wired — related code will return empty. "
-                        "Use `context_search` for semantic lookups instead.)"
-                    ),
+                    text="No related context found for this chunk.",
                 )
             ]
         lines = [
