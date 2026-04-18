@@ -92,12 +92,23 @@ def index(ctx: click.Context, full: bool, path: str | None, changed_only: bool) 
 
 
 @main.command()
+@click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 @click.pass_context
-def status(ctx: click.Context) -> None:
+def status(ctx: click.Context, output_json: bool) -> None:
     """Show index status and config."""
     import json as _json
     config = ctx.obj["config"]
     verbose = ctx.obj["verbose"]
+
+    if output_json:
+        out = {
+            "storage_path": config.storage_path,
+            "compression_level": config.compression_level,
+            "resource_profile": config.detect_resource_profile(),
+        }
+        click.echo(_json.dumps(out, indent=2))
+        return
+
     click.echo(f"Storage path: {config.storage_path}")
     click.echo(f"Compression level: {config.compression_level}")
     click.echo(f"Resource profile: {config.detect_resource_profile()}")
