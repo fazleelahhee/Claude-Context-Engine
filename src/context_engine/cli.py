@@ -320,9 +320,21 @@ def savings_shortcut() -> None:
 
 
 @main.command()
+@click.option("--http", "as_http", is_flag=True, help="Start HTTP REST server instead of stdio MCP")
+@click.option("--host", default="127.0.0.1", show_default=True, help="HTTP bind host (requires CCE_API_TOKEN for non-loopback)")
+@click.option("--port", default=8765, show_default=True, help="HTTP port")
 @click.pass_context
-def serve(ctx: click.Context) -> None:
-    """Start the MCP server (used by Claude Code)."""
+def serve(ctx: click.Context, as_http: bool, host: str, port: int) -> None:
+    """Start the MCP server (used by Claude Code).
+
+    With --http, starts a REST server exposing the storage backend for remote
+    backend clients. Binds loopback by default; exposing on other interfaces
+    requires CCE_API_TOKEN to be set.
+    """
+    if as_http:
+        from context_engine.serve_http import run_http_server
+        run_http_server(ctx.obj["config"], host=host, port=port)
+        return
     click.echo("Starting context engine MCP server...", err=True)
     asyncio.run(_run_serve(ctx.obj["config"]))
 

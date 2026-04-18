@@ -44,6 +44,7 @@ dev = [
     "pytest-cov>=5.0",
 ]
 torch = ["sentence-transformers>=3.0"]
+http = ["aiohttp>=3.9"]
 
 [project.scripts]
 claude-context-engine = "context_engine.cli:main"
