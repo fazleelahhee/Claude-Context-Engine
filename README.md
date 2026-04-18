@@ -174,6 +174,10 @@ Without CCE:        Read payments.py + shipping.py ->  45k tokens
 | `cce savings` | Visual token savings report |
 | `cce savings --all` | Savings across all indexed projects |
 | `cce savings --json` | Machine-readable savings output |
+| `cce clear` | Clear all index data and reset stats for the current project |
+| `cce clear --yes` | Skip confirmation prompt |
+| `cce prune` | Remove index data for projects whose directories no longer exist |
+| `cce prune --dry-run` | Preview what prune would remove without deleting |
 | `cce dashboard` | Open the web dashboard |
 | `cce dashboard --port 8080` | Open on a specific port |
 | `cce dashboard --no-browser` | Start server without opening a browser |
@@ -317,6 +321,8 @@ Markdown and other text-based files are supported with line-based chunking. Go, 
 - [x] Cross-session memory (decisions, code areas)
 - [x] Web dashboard with charts (`cce dashboard`)
 - [x] Token savings tracking and reporting
+- [x] Non-git project support
+- [x] Index management (`cce clear`, `cce prune`)
 - [ ] Tree-sitter support for Go, Rust, Java, C, and C++
 - [ ] Persistent session search across projects
 - [ ] Docker support for remote mode
