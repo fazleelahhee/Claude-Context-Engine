@@ -77,6 +77,26 @@ class RemoteBackend:
         except (httpx.ConnectError, httpx.TimeoutException):
             pass
 
+    async def fts_search(self, query, top_k=30):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(f"{self._api_base}/fts/search",
+                    json={"query": query, "top_k": top_k})
+                resp.raise_for_status()
+                return [(item["chunk_id"], item["score"]) for item in resp.json()["results"]]
+        except (httpx.ConnectError, httpx.TimeoutException):
+            return []
+
+    async def get_chunks_by_ids(self, chunk_ids):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(f"{self._api_base}/chunks/batch",
+                    json={"chunk_ids": chunk_ids})
+                resp.raise_for_status()
+                return [self._dict_to_chunk(d) for d in resp.json()["results"]]
+        except (httpx.ConnectError, httpx.TimeoutException):
+            return []
+
     def _chunk_to_dict(self, chunk):
         return {"id": chunk.id, "content": chunk.content, "chunk_type": chunk.chunk_type.value,
                 "file_path": chunk.file_path, "start_line": chunk.start_line, "end_line": chunk.end_line,

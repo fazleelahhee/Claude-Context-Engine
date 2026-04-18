@@ -1,17 +1,21 @@
-"""Embedding generation using sentence-transformers."""
+"""Embedding generation using ONNX Runtime."""
 import logging
 import os
+from functools import lru_cache
 from pathlib import Path
 
-from sentence_transformers import SentenceTransformer
+import numpy as np
+from optimum.onnxruntime import ORTModelForFeatureExtraction
+from transformers import AutoTokenizer
 
 from context_engine.models import Chunk
 
 log = logging.getLogger(__name__)
 
+_DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
 
 def _model_cache_dir() -> Path:
-    """Return the Hugging Face cache dir, honouring HF_HOME and TRANSFORMERS_CACHE."""
     hf_home = os.environ.get("HF_HOME")
     if hf_home:
         return Path(hf_home) / "hub"
@@ -21,66 +25,63 @@ def _model_cache_dir() -> Path:
     return Path.home() / ".cache" / "huggingface" / "hub"
 
 
-def _is_model_cached(model_name: str) -> bool:
-    """Cheap heuristic: do we have a snapshot for this model locally?"""
-    cache_dir = _model_cache_dir()
-    if not cache_dir.exists():
-        return False
-    # SentenceTransformer resolves bare names (e.g. "all-MiniLM-L6-v2") to
-    # "sentence-transformers/all-MiniLM-L6-v2" before fetching.
-    if "/" not in model_name:
-        model_name = f"sentence-transformers/{model_name}"
-    safe_name = "models--" + model_name.replace("/", "--")
-    return any(child.name == safe_name for child in cache_dir.iterdir())
-
-
 class Embedder:
     def __init__(self, model_name: str = "all-MiniLM-L6-v2") -> None:
         self._model_name = model_name
-        if not _is_model_cached(model_name):
-            # Warn before the SentenceTransformer call triggers a network fetch.
-            log.warning(
-                "Downloading embedding model %s (~90MB first run). "
-                "Set HF_HOME to reuse an existing cache. Press Ctrl-C to abort.",
-                model_name,
-            )
+        resolved = f"sentence-transformers/{model_name}" if "/" not in model_name else model_name
+
+        _noisy_loggers = [
+            "transformers.modeling_utils", "transformers",
+            "huggingface_hub.file_download", "huggingface_hub",
+            "optimum", "onnxruntime",
+        ]
+        _prior_levels = {n: logging.getLogger(n).level for n in _noisy_loggers}
+        for name in _noisy_loggers:
+            logging.getLogger(name).setLevel(logging.ERROR)
         try:
-            # Silence noisy-but-harmless warnings from the HF/transformers stack
-            # during model load:
-            #  - "UNEXPECTED key: embeddings.position_ids" (older BERT checkpoints)
-            #  - "layers were not sharded" (safetensors info message)
-            #  - "unauthenticated requests to HF Hub" (no token set)
-            _noisy_loggers = [
-                "transformers.modeling_utils",
-                "transformers",
-                "huggingface_hub.file_download",
-                "huggingface_hub",
-                "safetensors",
-            ]
-            _prior_levels = {n: logging.getLogger(n).level for n in _noisy_loggers}
-            for name in _noisy_loggers:
-                logging.getLogger(name).setLevel(logging.ERROR)
-            try:
-                self._model = SentenceTransformer(model_name)
-            finally:
-                for name, level in _prior_levels.items():
-                    logging.getLogger(name).setLevel(level)
+            self._tokenizer = AutoTokenizer.from_pretrained(resolved)
+            self._model = ORTModelForFeatureExtraction.from_pretrained(
+                resolved, export=True
+            )
         except Exception as exc:
-            # Surface a helpful error instead of hanging or crashing deep inside
-            # the sentence-transformers stack.
             raise RuntimeError(
                 f"Failed to load embedding model '{model_name}'. "
                 f"If you're offline, pre-download it once with internet access, "
                 f"or set HF_HOME to point at an existing cache. Original error: {exc}"
             ) from exc
+        finally:
+            for name, level in _prior_levels.items():
+                logging.getLogger(name).setLevel(level)
 
-    def embed(self, chunks: list[Chunk]) -> None:
+    def _mean_pool(self, last_hidden_state, attention_mask):
+        """Attention-masked mean pooling — matches sentence-transformers."""
+        mask = attention_mask[..., None].astype(np.float32)
+        summed = (last_hidden_state * mask).sum(axis=1)
+        counts = mask.sum(axis=1).clip(min=1e-9)
+        return summed / counts
+
+    def embed(self, chunks: list[Chunk], batch_size: int = 32) -> None:
         if not chunks:
             return
-        texts = [c.content for c in chunks]
-        embeddings = self._model.encode(texts, show_progress_bar=False)
-        for chunk, emb in zip(chunks, embeddings):
-            chunk.embedding = emb.tolist()
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            texts = [c.content for c in batch]
+            inputs = self._tokenizer(
+                texts, padding=True, truncation=True, return_tensors="np"
+            )
+            outputs = self._model(**inputs)
+            embeddings = self._mean_pool(
+                outputs.last_hidden_state, inputs["attention_mask"]
+            )
+            norms = np.linalg.norm(embeddings, axis=1, keepdims=True).clip(min=1e-9)
+            embeddings = embeddings / norms
+            for chunk, emb in zip(batch, embeddings):
+                chunk.embedding = emb.tolist()
 
-    def embed_query(self, query: str) -> list[float]:
-        return self._model.encode(query, show_progress_bar=False).tolist()
+    @lru_cache(maxsize=256)
+    def embed_query(self, query: str) -> tuple:
+        inputs = self._tokenizer(query, return_tensors="np", truncation=True)
+        outputs = self._model(**inputs)
+        emb = self._mean_pool(outputs.last_hidden_state, inputs["attention_mask"])[0]
+        emb = emb / max(float(np.linalg.norm(emb)), 1e-9)
+        return tuple(emb.tolist())

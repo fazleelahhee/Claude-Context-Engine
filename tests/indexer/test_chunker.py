@@ -64,3 +64,27 @@ def test_chunk_unsupported_language_falls_back(chunker):
     chunks = chunker.chunk("some content here", file_path="data.txt", language="plaintext")
     assert len(chunks) == 1
     assert chunks[0].chunk_type == ChunkType.MODULE
+
+
+def test_extract_imports_python():
+    source = "import os\nfrom pathlib import Path\n\ndef main(): pass\n"
+    chunker = Chunker()
+    chunks, imports = chunker.chunk_with_imports(source, file_path="main.py", language="python")
+    assert len(chunks) > 0
+    assert "os" in imports
+    assert "pathlib" in imports
+
+
+def test_extract_imports_javascript():
+    source = "import React from 'react';\nimport { useState } from 'react';\nfunction App() {}\n"
+    chunker = Chunker()
+    chunks, imports = chunker.chunk_with_imports(source, file_path="App.js", language="javascript")
+    assert len(chunks) > 0
+    assert "react" in imports
+
+
+def test_chunk_still_works_without_imports():
+    source = "def hello(): pass\n"
+    chunker = Chunker()
+    chunks = chunker.chunk(source, file_path="hello.py", language="python")
+    assert len(chunks) == 1

@@ -1,4 +1,7 @@
 """LanceDB-backed vector store for chunk embeddings."""
+import asyncio
+import logging
+import math
 from pathlib import Path
 from threading import RLock
 
@@ -7,8 +10,10 @@ import pyarrow as pa
 
 from context_engine.models import Chunk, ChunkType
 
+log = logging.getLogger(__name__)
 
 TABLE_NAME = "chunks"
+_INDEX_THRESHOLD = 10_000
 
 
 def _escape_sql_literal(value) -> str:
@@ -86,6 +91,29 @@ class VectorStore:
             chunk.metadata["_distance"] = float(row["_distance"])
         return chunk
 
+    async def _maybe_create_index(self) -> None:
+        """Create an IVF_PQ index once the table exceeds the threshold."""
+        with self._lock:
+            if self._table is None:
+                return
+            try:
+                count = self._table.count_rows()
+            except Exception:
+                return
+            if count < _INDEX_THRESHOLD:
+                return
+        try:
+            num_partitions = max(256, int(math.sqrt(count)))
+            await asyncio.to_thread(
+                self._table.create_index,
+                metric="cosine",
+                num_partitions=num_partitions,
+                num_sub_vectors=16,
+            )
+            log.info("Created ANN index on %d chunks", count)
+        except Exception as exc:
+            log.debug("ANN index creation skipped: %s", exc)
+
     async def ingest(self, chunks: list[Chunk]) -> None:
         if not chunks:
             return
@@ -94,6 +122,7 @@ class VectorStore:
         rows = [self._chunk_to_row(c) for c in chunks if c.embedding]
         with self._lock:
             self._table.add(rows)
+        await self._maybe_create_index()
 
     async def search(
         self,
@@ -139,3 +168,21 @@ class VectorStore:
         if not results:
             return None
         return self._row_to_chunk(results[0])
+
+    async def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[Chunk]:
+        if not chunk_ids:
+            return []
+        with self._lock:
+            if self._table is None:
+                try:
+                    self._table = self._db.open_table(TABLE_NAME)
+                except Exception:
+                    return []
+            quoted = ", ".join(_escape_sql_literal(i) for i in chunk_ids)
+            results = (
+                self._table.search()
+                .where(f"id IN ({quoted})")
+                .limit(len(chunk_ids))
+                .to_list()
+            )
+        return [self._row_to_chunk(r) for r in results]

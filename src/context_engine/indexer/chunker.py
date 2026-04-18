@@ -13,6 +13,11 @@ _FUNCTION_TYPES = {
 _CLASS_TYPES = {
     "class_definition", "class_declaration",
 }
+_IMPORT_TYPES = {
+    "import_statement", "import_from_statement",  # Python
+    "import_declaration",  # TypeScript (tree-sitter-typescript)
+    # Note: JavaScript tree-sitter also uses "import_statement"
+}
 
 _LANGUAGES = {
     "python": Language(tspython.language()),
@@ -62,6 +67,60 @@ class Chunker:
             id=chunk_id, content=content, chunk_type=chunk_type,
             file_path=file_path, start_line=start_line, end_line=end_line, language=language,
         )
+
+    def chunk_with_imports(
+        self, source: str, file_path: str, language: str
+    ) -> tuple[list[Chunk], list[str]]:
+        chunks = self.chunk(source, file_path, language)
+        imports = self._extract_imports(source, language)
+        return chunks, imports
+
+    def _extract_imports(self, source: str, language: str) -> list[str]:
+        parser = self._get_parser(language)
+        if parser is None:
+            return []
+        tree = parser.parse(source.encode("utf-8"))
+        imports: list[str] = []
+        self._walk_imports(tree.root_node, source, language, imports)
+        return list(dict.fromkeys(imports))  # deduplicate while preserving order
+
+    def _walk_imports(self, node, source, language, imports):
+        if node.type in _IMPORT_TYPES:
+            module = self._parse_import_module(node, source, language)
+            if module:
+                imports.append(module)
+        for child in node.children:
+            self._walk_imports(child, source, language, imports)
+
+    def _parse_import_module(self, node, source, language) -> str | None:
+        if node.type == "import_statement":
+            # Python: "import os" or "import os.path"
+            # Also handles JS/TS: "import React from 'react'" (string child present)
+            for child in node.children:
+                if child.type == "string":
+                    # JavaScript/TypeScript import with string module specifier
+                    raw = source[child.start_byte:child.end_byte].strip("'\"")
+                    return raw.split("/")[0] if not raw.startswith("@") else "/".join(raw.split("/")[:2])
+                if child.type in ("dotted_name", "aliased_import"):
+                    # Python bare import
+                    name = source[child.start_byte:child.end_byte]
+                    name = name.split(" as ")[0].strip()
+                    return name.split(".")[0]
+        elif node.type == "import_from_statement":
+            # Python: "from pathlib import Path"
+            for child in node.children:
+                if child.type in ("dotted_name", "relative_import"):
+                    name = source[child.start_byte:child.end_byte].strip()
+                    name = name.lstrip(".")
+                    if name:
+                        return name.split(".")[0]
+        elif node.type == "import_declaration":
+            # TypeScript (tree-sitter-typescript): "import React from 'react'"
+            for child in node.children:
+                if child.type == "string":
+                    raw = source[child.start_byte:child.end_byte].strip("'\"")
+                    return raw.split("/")[0] if not raw.startswith("@") else "/".join(raw.split("/")[:2])
+        return None
 
     def _fallback_chunk(self, source, file_path, language):
         chunk_id = hashlib.sha256(f"{file_path}:module".encode()).hexdigest()[:16]

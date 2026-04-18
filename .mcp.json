@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "context-engine": {
-      "command": "/Users/raj/projects/Claude-Context-Engine/.venv/bin/cce",
+      "command": "/Users/fazleelahee/.local/bin/cce",
       "args": [
         "serve"
       ]
