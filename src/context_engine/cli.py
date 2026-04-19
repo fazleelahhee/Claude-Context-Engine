@@ -201,6 +201,10 @@ def init(ctx: click.Context) -> None:
     _ensure_claude_md(project_dir)
     _ensure_session_hook(project_dir)
 
+    # Add .cce/ to .gitignore
+    from context_engine.project_commands import ensure_gitignore
+    ensure_gitignore(str(project_dir))
+
     is_git_repo = (project_dir / ".git").exists()
     if not is_git_repo:
         click.echo(
@@ -326,8 +330,8 @@ def commands():
 @click.argument("command")
 def commands_add(hook: str, command: str) -> None:
     """Add a command to a hook. Example: cce commands add before_push 'composer test'"""
-    from context_engine.project_commands import load_commands, add_command
-    existing = load_commands(str(Path.cwd())).get(hook, [])
+    from context_engine.project_commands import load_project_only, add_command
+    existing = load_project_only(str(Path.cwd())).get(hook, [])
     if command in existing:
         click.echo(f"Already exists in {hook}: {command}")
         return
@@ -357,16 +361,62 @@ def commands_remove(hook: str, command: str) -> None:
         click.echo(f"Command not found in {hook}: {command}")
 
 
+@commands.command("add-rule")
+@click.argument("rule")
+def commands_add_rule(rule: str) -> None:
+    """Add a project rule. Example: cce commands add-rule 'Never use down() in migrations'"""
+    from context_engine.project_commands import load_project_only, add_rule
+    existing = load_project_only(str(Path.cwd())).get("rules", [])
+    if rule in existing:
+        click.echo(f"Rule already exists: {rule}")
+        return
+    add_rule(str(Path.cwd()), rule)
+    click.echo(f"Rule added: {rule}")
+
+
+@commands.command("remove-rule")
+@click.argument("rule")
+def commands_remove_rule(rule: str) -> None:
+    """Remove a project rule."""
+    from context_engine.project_commands import remove_rule
+    if remove_rule(str(Path.cwd()), rule):
+        click.echo(f"Rule removed: {rule}")
+    else:
+        click.echo(f"Rule not found: {rule}")
+
+
+@commands.command("set-pref")
+@click.argument("key")
+@click.argument("value")
+def commands_set_pref(key: str, value: str) -> None:
+    """Set a preference. Example: cce commands set-pref database PostgreSQL"""
+    from context_engine.project_commands import set_preference
+    set_preference(str(Path.cwd()), key, value)
+    click.echo(f"Preference set: {key} = {value}")
+
+
+@commands.command("remove-pref")
+@click.argument("key")
+def commands_remove_pref(key: str) -> None:
+    """Remove a preference."""
+    from context_engine.project_commands import remove_preference
+    if remove_preference(str(Path.cwd()), key):
+        click.echo(f"Preference removed: {key}")
+    else:
+        click.echo(f"Preference not found: {key}")
+
+
 @commands.command("list")
 def commands_list() -> None:
-    """Show all project commands."""
-    from context_engine.project_commands import load_commands, format_for_prompt
+    """Show all project commands, rules, and preferences (merged with workspace)."""
+    from context_engine.project_commands import load_commands
     cmds = load_commands(str(Path.cwd()))
     if not cmds:
-        click.echo("No project commands configured.")
-        click.echo("Add one with: cce commands add before_push 'composer test'")
+        click.echo("No project configuration found.")
+        click.echo("  cce commands add-rule 'Never use down() in migrations'")
+        click.echo("  cce commands set-pref database PostgreSQL")
+        click.echo("  cce commands add before_push 'composer test'")
         return
-    # Show raw YAML for clarity
     import yaml
     click.echo(yaml.dump(cmds, default_flow_style=False, sort_keys=False).rstrip())
 
