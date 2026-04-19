@@ -90,8 +90,29 @@ Other useful MCP tools:
 """
 
 
+def _resolve_cce_cmd() -> str:
+    """Find the globally installed cce binary path."""
+    import shutil
+    for candidate in [
+        Path.home() / ".local" / "bin" / "cce",
+        Path("/usr/local/bin/cce"),
+    ]:
+        if candidate.exists():
+            return str(candidate)
+    return shutil.which("cce") or "cce"
+
+
+def _has_cce_hook(hook_list: list, marker: str) -> bool:
+    """Check if a CCE hook already exists in a hooks list."""
+    for entry in hook_list:
+        for h in entry.get("hooks", []):
+            if marker in h.get("command", ""):
+                return True
+    return False
+
+
 def _ensure_session_hook(project_dir: Path) -> None:
-    """Add a SessionStart hook so Claude Code shows CCE status on startup."""
+    """Add Claude Code hooks so CCE status shows on startup."""
     settings_dir = project_dir / ".claude"
     settings_dir.mkdir(exist_ok=True)
     settings_path = settings_dir / "settings.local.json"
@@ -105,39 +126,21 @@ def _ensure_session_hook(project_dir: Path) -> None:
         data = {}
 
     hooks = data.setdefault("hooks", {})
+    cce_cmd = _resolve_cce_cmd()
+    changed = False
+
+    # SessionStart hook — show CCE status
     session_hooks = hooks.setdefault("SessionStart", [])
+    if not _has_cce_hook(session_hooks, "cce status"):
+        session_hooks.append({
+            "matcher": "",
+            "hooks": [{"type": "command", "command": f"{cce_cmd} status --oneline"}],
+        })
+        changed = True
 
-    # Check if CCE hook already exists (check nested hooks array format)
-    for entry in session_hooks:
-        for h in entry.get("hooks", []):
-            if "cce" in h.get("command", ""):
-                return
-
-    # Find the globally installed cce binary. Prefer known global paths over
-    # shutil.which, which may find a local .venv copy that won't work from
-    # Claude Code's shell.
-    import shutil
-    global_candidates = [
-        Path.home() / ".local" / "bin" / "cce",
-        Path("/usr/local/bin/cce"),
-    ]
-    cce_cmd = "cce"
-    for candidate in global_candidates:
-        if candidate.exists():
-            cce_cmd = str(candidate)
-            break
-    else:
-        found = shutil.which("cce")
-        if found:
-            cce_cmd = found
-
-    session_hooks.append({
-        "matcher": "",
-        "hooks": [{"type": "command", "command": f"{cce_cmd} status --oneline"}],
-    })
-
-    settings_path.write_text(json.dumps(data, indent=2) + "\n")
-    click.echo("SessionStart hook installed for CCE status.")
+    if changed:
+        settings_path.write_text(json.dumps(data, indent=2) + "\n")
+        click.echo("SessionStart hook installed for CCE status.")
 
 
 def _ensure_claude_md(project_dir: Path) -> None:
@@ -262,7 +265,10 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
                     savings = f" · {pct}% saved over {q} queries"
             except Exception:
                 pass
-        click.echo(f"CCE v{ver} · {project_name} · {chunks} chunks indexed{savings}")
+        click.echo(
+            f"CCE v{ver} · {project_name} · {chunks} chunks indexed{savings}\n"
+            f"USE context_search MCP tool for all code questions. Do NOT use Read/Grep to explore code."
+        )
         return
 
     if output_json:
@@ -320,7 +326,11 @@ def commands():
 @click.argument("command")
 def commands_add(hook: str, command: str) -> None:
     """Add a command to a hook. Example: cce commands add before_push 'composer test'"""
-    from context_engine.project_commands import add_command
+    from context_engine.project_commands import load_commands, add_command
+    existing = load_commands(str(Path.cwd())).get(hook, [])
+    if command in existing:
+        click.echo(f"Already exists in {hook}: {command}")
+        return
     add_command(str(Path.cwd()), hook, command)
     click.echo(f"Added to {hook}: {command}")
 
