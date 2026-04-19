@@ -90,6 +90,55 @@ Other useful MCP tools:
 """
 
 
+def _ensure_session_hook(project_dir: Path) -> None:
+    """Add a SessionStart hook so Claude Code shows CCE status on startup."""
+    settings_dir = project_dir / ".claude"
+    settings_dir.mkdir(exist_ok=True)
+    settings_path = settings_dir / "settings.local.json"
+
+    if settings_path.exists():
+        try:
+            data = json.loads(settings_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            data = {}
+    else:
+        data = {}
+
+    hooks = data.setdefault("hooks", {})
+    session_hooks = hooks.setdefault("SessionStart", [])
+
+    # Check if CCE hook already exists
+    for hook in session_hooks:
+        if "cce" in hook.get("command", ""):
+            return
+
+    # Find the globally installed cce binary. Prefer known global paths over
+    # shutil.which, which may find a local .venv copy that won't work from
+    # Claude Code's shell.
+    import shutil
+    global_candidates = [
+        Path.home() / ".local" / "bin" / "cce",
+        Path("/usr/local/bin/cce"),
+    ]
+    cce_cmd = "cce"
+    for candidate in global_candidates:
+        if candidate.exists():
+            cce_cmd = str(candidate)
+            break
+    else:
+        found = shutil.which("cce")
+        if found:
+            cce_cmd = found
+
+    session_hooks.append({
+        "type": "command",
+        "command": f"{cce_cmd} status --oneline",
+    })
+
+    settings_path.write_text(json.dumps(data, indent=2) + "\n")
+    click.echo("SessionStart hook installed for CCE status.")
+
+
 def _ensure_claude_md(project_dir: Path) -> None:
     """Add CCE instructions to CLAUDE.md if not already present."""
     claude_md = project_dir / "CLAUDE.md"
@@ -146,6 +195,7 @@ def init(ctx: click.Context) -> None:
         click.echo("MCP server already in .mcp.json.")
 
     _ensure_claude_md(project_dir)
+    _ensure_session_hook(project_dir)
 
     is_git_repo = (project_dir / ".git").exists()
     if not is_git_repo:
@@ -175,12 +225,44 @@ def index(ctx: click.Context, full: bool, path: str | None, changed_only: bool) 
 
 @main.command()
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
+@click.option("--oneline", is_flag=True, help="Single-line status for hooks")
 @click.pass_context
-def status(ctx: click.Context, output_json: bool) -> None:
+def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
     """Show index status and config."""
     import json as _json
+    from importlib.metadata import version as pkg_version
     config = ctx.obj["config"]
     verbose = ctx.obj["verbose"]
+
+    if oneline:
+        try:
+            ver = pkg_version("claude-context-engine")
+        except Exception:
+            ver = "?"
+        project_name = Path.cwd().name
+        storage = Path(config.storage_path) / project_name
+        stats_path = storage / "stats.json"
+        chunks = 0
+        savings = ""
+        try:
+            from context_engine.storage.vector_store import VectorStore
+            vs = VectorStore(db_path=str(storage / "vectors"))
+            chunks = vs.count()
+        except Exception:
+            pass
+        if stats_path.exists():
+            try:
+                stats = _json.loads(stats_path.read_text())
+                q = stats.get("queries", 0)
+                full = stats.get("full_file_tokens", 0)
+                served = stats.get("served_tokens", 0)
+                if q > 0 and full > 0:
+                    pct = int((full - served) / full * 100)
+                    savings = f" · {pct}% saved over {q} queries"
+            except Exception:
+                pass
+        click.echo(f"CCE v{ver} · {project_name} · {chunks} chunks indexed{savings}")
+        return
 
     if output_json:
         out = {
