@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/logo.svg" alt="Claude Context Engine" width="160">
+  <img src="https://raw.githubusercontent.com/fazleelahhee/Claude-Context-Engine/main/docs/logo.svg" alt="Claude Context Engine" width="160">
 </p>
 
 <h1 align="center">Claude Context Engine</h1>
@@ -75,7 +75,7 @@ cce dashboard
 
 The dashboard opens automatically in your browser. Use `--no-browser` to suppress that behavior, or `--port` to specify a port.
 
-![CCE Dashboard](docs/dashboard.png)
+![CCE Dashboard](https://raw.githubusercontent.com/fazleelahhee/Claude-Context-Engine/main/docs/dashboard.png)
 
 The dashboard provides four views:
 
