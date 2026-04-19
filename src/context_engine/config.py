@@ -8,7 +8,34 @@ import yaml
 DEFAULT_GLOBAL_PATH = Path.home() / ".claude-context-engine" / "config.yaml"
 PROJECT_CONFIG_NAME = ".context-engine.yaml"
 
-DEFAULT_IGNORE = [".git", "node_modules", "__pycache__", ".venv", ".env"]
+DEFAULT_IGNORE = [
+    # Version control
+    ".git", ".svn", ".hg",
+    # Dependencies
+    "node_modules", "vendor", "bower_components",
+    ".venv", "venv", "env", ".env",
+    ".tox", ".nox", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", ".cache",
+    # Build output
+    "dist", "build", "_build", "out", "target",
+    ".next", ".nuxt", ".output", ".vercel",
+    ".turbo", ".parcel-cache",
+    # IDE / editor
+    ".idea", ".vscode", ".vs",
+    # Coverage / test artifacts
+    "coverage", ".coverage", "htmlcov", ".nyc_output",
+    # OS files
+    ".DS_Store",
+    # Compiled / generated
+    "__pycache__", ".sass-cache", ".gradle",
+    # Infra
+    ".terraform", ".vagrant",
+    # Package locks (huge, not useful)
+    "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+    "composer.lock", "poetry.lock",
+    # Storage / logs
+    "storage", "logs", "tmp", "temp",
+]
 
 
 @dataclass
