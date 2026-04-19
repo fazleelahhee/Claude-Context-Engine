@@ -50,7 +50,7 @@ class Config:
     output_compression: str = "standard"  # off | lite | standard | max
 
     # Embedding
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
 
     # Retrieval
     retrieval_confidence_threshold: float = 0.2

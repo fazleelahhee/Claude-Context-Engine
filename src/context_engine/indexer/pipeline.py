@@ -240,86 +240,93 @@ async def _run_indexing_locked(
     all_nodes: list[GraphNode] = []
     all_edges: list[GraphEdge] = []
 
-    for file_path in file_iter:
-        rel_path = str(file_path.relative_to(project_dir))
-        current_rel_paths.add(rel_path)
+    # Read files asynchronously — overlap I/O with processing.
+    async def _read_file(fp: Path) -> tuple[Path, str | None]:
+        return fp, await asyncio.to_thread(_safe_read, fp)
 
-        content = _safe_read(file_path)
-        if content is None:
-            result.skipped_files.append(rel_path)
-            if log_fn:
-                log_fn(f"  [skip] {rel_path} (binary or unreadable)")
-            continue
+    # Process files in batches to pipeline I/O with chunking.
+    _BATCH = 50
+    for batch_start in range(0, len(file_iter), _BATCH):
+        batch_paths = file_iter[batch_start:batch_start + _BATCH]
 
-        content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        if not full and not manifest.has_changed(rel_path, content_hash):
-            if log_fn:
-                log_fn(f"  [skip] {rel_path} (unchanged)")
-            continue
+        # Async read all files in this batch concurrently
+        read_tasks = [_read_file(fp) for fp in batch_paths]
+        read_results = await asyncio.gather(*read_tasks)
 
-        language = _LANGUAGE_MAP.get(file_path.suffix, "plaintext")
-        t0 = time.monotonic()
-        try:
-            chunks, imported_modules = chunker.chunk_with_imports(content, file_path=rel_path, language=language)
-        except Exception as exc:  # pragma: no cover - defensive
-            result.errors.append(f"Chunking failed for {rel_path}: {exc}")
-            log.warning("Chunking failed for %s", rel_path, exc_info=exc)
-            continue
-        elapsed = time.monotonic() - t0
-        if log_fn:
-            log_fn(f"  [index] {rel_path} — {len(chunks)} chunks ({elapsed:.3f}s)")
+        for file_path, content in read_results:
+            rel_path = str(file_path.relative_to(project_dir))
+            current_rel_paths.add(rel_path)
 
-        # Deleting a file's old chunks before re-ingesting keeps the vector store
-        # consistent when chunk boundaries move between runs.
-        await backend.delete_by_file(rel_path)
+            if content is None:
+                result.skipped_files.append(rel_path)
+                if log_fn:
+                    log_fn(f"  [skip] {rel_path} (binary or unreadable)")
+                continue
 
-        file_node = GraphNode(
-            id=f"file_{rel_path}",
-            node_type=NodeType.FILE,
-            name=file_path.name,
-            file_path=rel_path,
-        )
-        all_nodes.append(file_node)
+            content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+            if not full and not manifest.has_changed(rel_path, content_hash):
+                if log_fn:
+                    log_fn(f"  [skip] {rel_path} (unchanged)")
+                continue
 
-        # Add IMPORTS edges for detected import statements
-        for module in imported_modules:
-            all_edges.append(
-                GraphEdge(
-                    source_id=file_node.id,
-                    target_id=f"module_{module}",
-                    edge_type=EdgeType.IMPORTS,
+            language = _LANGUAGE_MAP.get(file_path.suffix, "plaintext")
+            try:
+                chunks, imported_modules = chunker.chunk_with_imports(
+                    content, file_path=rel_path, language=language
                 )
-            )
+            except Exception as exc:  # pragma: no cover - defensive
+                result.errors.append(f"Chunking failed for {rel_path}: {exc}")
+                log.warning("Chunking failed for %s", rel_path, exc_info=exc)
+                continue
 
-        for chunk in chunks:
-            node_type = (
-                NodeType.FUNCTION
-                if chunk.chunk_type.value == "function"
-                else NodeType.CLASS
+            await backend.delete_by_file(rel_path)
+
+            file_node = GraphNode(
+                id=f"file_{rel_path}",
+                node_type=NodeType.FILE,
+                name=file_path.name,
+                file_path=rel_path,
             )
-            node_name = (
-                chunk.content.split("(")[0].split(":")[-1].strip()
-                if "(" in chunk.content
-                else chunk.id
-            )
-            all_nodes.append(
-                GraphNode(
-                    id=chunk.id,
-                    node_type=node_type,
-                    name=node_name,
-                    file_path=rel_path,
+            all_nodes.append(file_node)
+
+            for module in imported_modules:
+                all_edges.append(
+                    GraphEdge(
+                        source_id=file_node.id,
+                        target_id=f"module_{module}",
+                        edge_type=EdgeType.IMPORTS,
+                    )
                 )
-            )
-            all_edges.append(
-                GraphEdge(
-                    source_id=file_node.id,
-                    target_id=chunk.id,
-                    edge_type=EdgeType.DEFINES,
+
+            for chunk in chunks:
+                node_type = (
+                    NodeType.FUNCTION
+                    if chunk.chunk_type.value == "function"
+                    else NodeType.CLASS
                 )
-            )
-        all_chunks.extend(chunks)
-        manifest.update(rel_path, content_hash)
-        result.indexed_files.append(rel_path)
+                node_name = (
+                    chunk.content.split("(")[0].split(":")[-1].strip()
+                    if "(" in chunk.content
+                    else chunk.id
+                )
+                all_nodes.append(
+                    GraphNode(
+                        id=chunk.id,
+                        node_type=node_type,
+                        name=node_name,
+                        file_path=rel_path,
+                    )
+                )
+                all_edges.append(
+                    GraphEdge(
+                        source_id=file_node.id,
+                        target_id=chunk.id,
+                        edge_type=EdgeType.DEFINES,
+                    )
+                )
+            all_chunks.extend(chunks)
+            manifest.update(rel_path, content_hash)
+            result.indexed_files.append(rel_path)
 
     # Index git history on full runs (skip for non-git projects)
     _is_git = (Path(project_dir) / ".git").is_dir()

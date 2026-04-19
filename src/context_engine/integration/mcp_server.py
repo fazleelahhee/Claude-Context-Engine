@@ -84,6 +84,9 @@ class ContextEngineMCP:
         # Bootstrap builder — used by the `context-engine-init` prompt handler.
         self._bootstrap = BootstrapBuilder(max_tokens=config.bootstrap_max_tokens)
 
+        # Lazy indexing flag — triggers on first context_search if index is empty.
+        self._lazy_indexed = False
+
         self._register_tools()
         self._register_prompts()
 
@@ -294,6 +297,25 @@ class ContextEngineMCP:
 
     # ── tool handlers ───────────────────────────────────────────────────────
 
+    async def _ensure_indexed(self) -> None:
+        """Lazy indexing: if the index is empty, trigger indexing on first query."""
+        if self._lazy_indexed:
+            return
+        self._lazy_indexed = True
+        try:
+            count = self._backend._vector_store.count()
+            if count > 0:
+                return
+        except Exception:
+            pass
+        # Index is empty — trigger on-the-fly indexing
+        log.info("Index empty — triggering lazy indexing for %s", self._project_name)
+        try:
+            from context_engine.indexer.pipeline import run_indexing
+            await run_indexing(self._config, self._project_dir, full=False)
+        except Exception as exc:
+            log.warning("Lazy indexing failed: %s", exc)
+
     async def _handle_context_search(self, args):
         query = (args.get("query") or "").strip()
         if not query:
@@ -305,6 +327,10 @@ class ContextEngineMCP:
                     text=f"Query too long (max {_MAX_QUERY_CHARS} characters).",
                 )
             ]
+
+        # Lazy index if this is the first query and index is empty
+        await self._ensure_indexed()
+
         top_k = _clamp_top_k(args.get("top_k", 10))
         max_tokens = args.get("max_tokens", 8000)
         try:

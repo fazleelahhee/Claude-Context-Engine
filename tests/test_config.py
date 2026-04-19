@@ -10,7 +10,7 @@ from context_engine.config import Config, load_config
 def test_default_config():
     config = Config()
     assert config.compression_level == "standard"
-    assert config.embedding_model == "all-MiniLM-L6-v2"
+    assert config.embedding_model == "BAAI/bge-small-en-v1.5"
     assert config.retrieval_top_k == 20
     assert config.indexer_watch is True
 
