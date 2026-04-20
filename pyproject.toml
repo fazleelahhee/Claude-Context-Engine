@@ -1,9 +1,9 @@
 [project]
 name = "claude-context-engine"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local context engine for Claude Code — indexes projects, compresses context, reduces token cost"
-readme = "README.md"
-license = {text = "MIT"}
+readme = {file = "README.md", content-type = "text/markdown"}
+license = "MIT"
 authors = [
     {name = "Fazle Elahee", email = "felahee@gmail.com"},
     {name = "Raj", email = "rajkumar.sakti@gmail.com"},
@@ -12,7 +12,6 @@ keywords = ["claude", "context", "mcp", "llm", "code-indexing", "vector-search"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
