@@ -822,13 +822,19 @@ async def _run_index(config, project_dir: str, full: bool = False, verbose: bool
 
 
 async def _run_serve(config) -> None:
-    """Start MCP server."""
+    """Start MCP server with live file watcher."""
+    import logging
     from context_engine.storage.local_backend import LocalBackend
     from context_engine.indexer.embedder import Embedder
     from context_engine.retrieval.retriever import HybridRetriever
     from context_engine.compression.compressor import Compressor
     from context_engine.integration.mcp_server import ContextEngineMCP
+    from context_engine.indexer.watcher import FileWatcher
+    from context_engine.indexer.pipeline import run_indexing
 
+    _log = logging.getLogger("context_engine.watcher")
+
+    project_dir = str(Path.cwd())
     project_name = Path.cwd().name
     storage_base = Path(config.storage_path) / project_name
     backend = LocalBackend(base_path=str(storage_base))
@@ -839,7 +845,42 @@ async def _run_serve(config) -> None:
         retriever=retriever, backend=backend, compressor=compressor,
         embedder=embedder, config=config,
     )
+
+    # Live file watcher — re-indexes changed files on save.
+    _reindex_queue: asyncio.Queue[str] = asyncio.Queue()
+
+    async def _on_file_change(file_path: str):
+        """Queue the file for re-indexing (non-blocking)."""
+        rel = str(Path(file_path).relative_to(project_dir))
+        await _reindex_queue.put(rel)
+
+    async def _reindex_worker():
+        """Background task that processes re-index requests sequentially."""
+        while True:
+            rel = await _reindex_queue.get()
+            try:
+                await run_indexing(config, project_dir, target_path=rel)
+                _log.debug("Re-indexed: %s", rel)
+            except Exception as exc:
+                _log.debug("Watch re-index failed for %s: %s", rel, exc)
+            _reindex_queue.task_done()
+
+    watcher = FileWatcher(
+        watch_dir=project_dir,
+        on_change=_on_file_change,
+        debounce_ms=config.indexer_debounce_ms,
+        ignore_patterns=config.indexer_ignore,
+    )
+
     chunk_count = backend._vector_store.count()
     import sys
-    print(f"CCE ready · {project_name} · {chunk_count} chunks indexed", file=sys.stderr)
-    await mcp.run_stdio()
+    print(f"CCE ready · {project_name} · {chunk_count} chunks indexed · live watcher active", file=sys.stderr)
+
+    loop = asyncio.get_running_loop()
+    worker_task = asyncio.create_task(_reindex_worker())
+    watcher.start(loop=loop)
+    try:
+        await mcp.run_stdio()
+    finally:
+        watcher.stop()
+        worker_task.cancel()
