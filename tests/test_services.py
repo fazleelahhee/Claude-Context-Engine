@@ -1,6 +1,5 @@
 """Tests for services.py — PID utilities and status checks."""
 import os
-import signal
 from pathlib import Path
 
 import pytest
@@ -48,16 +47,16 @@ def test_process_alive_self():
 
 
 def test_process_alive_dead_pid():
-    import subprocess
-    proc = subprocess.Popen(["true"])
-    proc.wait()
-    assert _process_alive(proc.pid) is False
+    # PID 2**22 is beyond the max PID on all supported platforms (Linux max=4194304=2^22,
+    # macOS max=99998). Using it guarantees ProcessLookupError without relying on timing.
+    assert _process_alive(4_200_000) is False
 
 
 # ── Port check ────────────────────────────────────────────────────────────────
 
 def test_check_port_open_closed():
-    # Port 19999 is almost certainly not in use
+    # Port 19999 is in the unregistered range (1024-49151) and not assigned by IANA.
+    # If this flakes in CI, replace with a dynamically allocated port.
     assert _check_port_open(19999) is False
 
 
