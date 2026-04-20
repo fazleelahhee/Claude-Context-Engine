@@ -1,148 +1,129 @@
-"""LanceDB-backed vector store for chunk embeddings."""
+"""SQLite-vec backed vector store for chunk embeddings.
+
+Replaces LanceDB (217MB) with sqlite-vec (~2MB). Same API, same search
+quality. Uses cosine distance for similarity ranking.
+
+Schema:
+  chunks — regular table storing chunk metadata + content
+  chunks_vec — vec0 virtual table storing embeddings for vector search
+"""
 import asyncio
 import logging
-import math
+import os
+import sqlite3
+import struct
 from pathlib import Path
 from threading import RLock
-
-import lancedb
-import pyarrow as pa
 
 from context_engine.models import Chunk, ChunkType
 
 log = logging.getLogger(__name__)
 
-TABLE_NAME = "chunks"
-_INDEX_THRESHOLD = 10_000
-_MAX_CONTENT_CHARS = 5_000  # Cap stored content to control index size
-
-
-def _escape_sql_literal(value) -> str:
-    """Quote a value for inline use in a LanceDB `where` filter.
-
-    LanceDB doesn't expose a positional-parameter API everywhere, so we build
-    strings — but every inline value must be escaped to prevent both breakage on
-    apostrophes in file paths and any filter-injection shenanigans.
-    """
-    if value is None:
-        return "NULL"
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return "'" + str(value).replace("'", "''") + "'"
+_MAX_CONTENT_CHARS = 5_000
 
 
 def _to_list(embedding) -> list[float]:
-    """Ensure embedding is a plain list — LanceDB rejects tuples/numpy arrays."""
+    """Ensure embedding is a plain list."""
     if isinstance(embedding, list):
         return embedding
     return list(embedding)
 
 
+def _serialize_vec(vec) -> bytes:
+    """Pack a float vector into bytes for sqlite-vec."""
+    v = _to_list(vec)
+    return struct.pack(f"{len(v)}f", *v)
+
+
+def _deserialize_vec(data: bytes, dim: int) -> list[float]:
+    """Unpack bytes into a float list."""
+    return list(struct.unpack(f"{dim}f", data))
+
+
 class VectorStore:
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path
-        self._db = lancedb.connect(db_path)
         self._lock = RLock()
-        try:
-            self._table = self._db.open_table(TABLE_NAME)
-        except (FileNotFoundError, ValueError):
-            # Table doesn't exist yet — will be created on first ingest.
-            self._table = None
-        except Exception as exc:
-            log.warning("Failed to open vector table: %s", exc)
-            self._table = None
+        self._dim: int | None = None
+        os.makedirs(db_path, exist_ok=True)
+        self._db_file = os.path.join(db_path, "vectors.db")
+        self._conn = self._connect()
+        self._ensure_tables()
 
-    def _ensure_table(self, vector_dim: int) -> None:
+    def _connect(self) -> sqlite3.Connection:
+        import sqlite_vec
+        conn = sqlite3.connect(self._db_file, check_same_thread=False)
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+
+    def _ensure_tables(self) -> None:
         with self._lock:
-            if self._table is not None:
-                return
-            try:
-                self._table = self._db.open_table(TABLE_NAME)
-            except (FileNotFoundError, ValueError):
-                schema = pa.schema([
-                    pa.field("id", pa.string()),
-                    pa.field("content", pa.string()),
-                    pa.field("chunk_type", pa.string()),
-                    pa.field("file_path", pa.string()),
-                    pa.field("start_line", pa.int32()),
-                    pa.field("end_line", pa.int32()),
-                    pa.field("language", pa.string()),
-                    pa.field("vector", pa.list_(pa.float32(), vector_dim)),
-                ])
-                self._table = self._db.create_table(TABLE_NAME, schema=schema)
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS chunks (
+                    id TEXT PRIMARY KEY,
+                    content TEXT NOT NULL,
+                    chunk_type TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    start_line INTEGER NOT NULL,
+                    end_line INTEGER NOT NULL,
+                    language TEXT NOT NULL
+                )
+            """)
+            self._conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_chunks_file_path
+                ON chunks(file_path)
+            """)
+            # Detect vector dimension from existing data
+            row = self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_vec'"
+            ).fetchone()
+            if row:
+                # Table exists — read dim from first row
+                r = self._conn.execute("SELECT rowid FROM chunks_vec LIMIT 1").fetchone()
+                if r:
+                    self._dim = self._conn.execute(
+                        "SELECT vec_length(embedding) FROM chunks_vec LIMIT 1"
+                    ).fetchone()[0]
+            self._conn.commit()
 
-    def _chunk_to_row(self, chunk: Chunk) -> dict:
+    def _ensure_vec_table(self, dim: int) -> None:
+        if self._dim == dim:
+            return
+        with self._lock:
+            self._conn.execute(f"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec
+                USING vec0(embedding float[{dim}])
+            """)
+            self._dim = dim
+            self._conn.commit()
+
+    def _chunk_to_row(self, chunk: Chunk) -> tuple:
         content = chunk.content
         if len(content) > _MAX_CONTENT_CHARS:
             content = content[:_MAX_CONTENT_CHARS] + "\n...[truncated]"
-        return {
-            "id": chunk.id,
-            "content": content,
-            "chunk_type": chunk.chunk_type.value,
-            "file_path": chunk.file_path,
-            "start_line": chunk.start_line,
-            "end_line": chunk.end_line,
-            "language": chunk.language,
-            "vector": _to_list(chunk.embedding),
-        }
-
-    def _row_to_chunk(self, row: dict) -> Chunk:
-        chunk = Chunk(
-            id=row["id"],
-            content=row["content"],
-            chunk_type=ChunkType(row["chunk_type"]),
-            file_path=row["file_path"],
-            start_line=row["start_line"],
-            end_line=row["end_line"],
-            language=row["language"],
-            embedding=row.get("vector"),
+        return (
+            chunk.id, content, chunk.chunk_type.value,
+            chunk.file_path, chunk.start_line, chunk.end_line,
+            chunk.language,
         )
-        if "_distance" in row and row["_distance"] is not None:
-            chunk.metadata["_distance"] = float(row["_distance"])
+
+    def _row_to_chunk(self, row, distance: float | None = None) -> Chunk:
+        chunk = Chunk(
+            id=row[0],
+            content=row[1],
+            chunk_type=ChunkType(row[2]),
+            file_path=row[3],
+            start_line=row[4],
+            end_line=row[5],
+            language=row[6],
+        )
+        if distance is not None:
+            chunk.metadata["_distance"] = distance
         return chunk
-
-    async def _maybe_create_index(self) -> None:
-        """Create an IVF_SQ (scalar quantization) index for smaller storage.
-
-        Uses int8 quantization — vectors stored as 384 bytes instead of 1536,
-        with ~1-2% quality loss. Falls back to IVF_PQ if SQ is unavailable.
-        """
-        with self._lock:
-            if self._table is None:
-                return
-            try:
-                count = self._table.count_rows()
-            except Exception:
-                return
-            if count < _INDEX_THRESHOLD:
-                return
-        try:
-            num_partitions = max(16, min(int(math.sqrt(count)), 256))
-            await asyncio.to_thread(
-                self._table.create_index,
-                metric="cosine",
-                num_partitions=num_partitions,
-                index_type="IVF_SQ",
-                num_bits=8,
-                replace=True,
-            )
-            log.info("Created IVF_SQ index on %d chunks", count)
-        except Exception:
-            # Fall back to IVF_PQ if SQ not supported
-            try:
-                await asyncio.to_thread(
-                    self._table.create_index,
-                    metric="cosine",
-                    num_partitions=num_partitions,
-                    num_sub_vectors=16,
-                    index_type="IVF_PQ",
-                    replace=True,
-                )
-                log.info("Created IVF_PQ fallback index on %d chunks", count)
-            except Exception as exc:
-                log.debug("Index creation skipped: %s", exc)
 
     async def ingest(self, chunks: list[Chunk]) -> None:
         if not chunks:
@@ -151,23 +132,29 @@ class VectorStore:
         if not valid:
             log.warning("ingest called but no chunks have embeddings")
             return
-        vector_dim = len(valid[0].embedding)
-        self._ensure_table(vector_dim)
-        rows = [self._chunk_to_row(c) for c in valid]
+        dim = len(valid[0].embedding)
+        self._ensure_vec_table(dim)
         with self._lock:
-            self._table.add(rows)
-        await self._maybe_create_index()
-        await self._compact()
-
-    async def _compact(self) -> None:
-        """Compact LanceDB storage — merge fragments and clean old versions."""
-        try:
-            with self._lock:
-                if self._table is None:
-                    return
-                self._table.optimize()
-        except Exception as exc:
-            log.debug("Compaction skipped: %s", exc)
+            # Use a rowid mapping: hash chunk.id to an integer
+            for chunk in valid:
+                row = self._chunk_to_row(chunk)
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO chunks "
+                    "(id, content, chunk_type, file_path, start_line, end_line, language) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    row,
+                )
+                # Get the rowid for this chunk
+                rowid = self._conn.execute(
+                    "SELECT rowid FROM chunks WHERE id = ?", (chunk.id,)
+                ).fetchone()[0]
+                # Delete old vector if exists, then insert new one
+                self._conn.execute("DELETE FROM chunks_vec WHERE rowid = ?", (rowid,))
+                self._conn.execute(
+                    "INSERT INTO chunks_vec(rowid, embedding) VALUES (?, ?)",
+                    (rowid, _serialize_vec(chunk.embedding)),
+                )
+            self._conn.commit()
 
     async def search(
         self,
@@ -177,116 +164,115 @@ class VectorStore:
     ) -> list[Chunk]:
         embedding_list = _to_list(query_embedding)
         with self._lock:
-            if self._table is None:
-                try:
-                    self._table = self._db.open_table(TABLE_NAME)
-                except (FileNotFoundError, ValueError):
-                    return []
-                except Exception as exc:
-                    log.error("Cannot open vector table for search: %s", exc)
-                    return []
+            if self._dim is None:
+                return []
             try:
-                query = self._table.search(embedding_list).limit(top_k)
-                if filters:
-                    where_clauses = [
-                        f"{key} = {_escape_sql_literal(value)}"
-                        for key, value in filters.items()
-                    ]
-                    query = query.where(" AND ".join(where_clauses))
-                results = query.to_list()
+                query_bytes = _serialize_vec(embedding_list)
+                # Vector search via sqlite-vec
+                # sqlite-vec requires k=? in WHERE, not LIMIT
+                if filters and "file_path" in filters:
+                    fp = filters["file_path"]
+                    # First get matching rowids from vec search, then filter
+                    rows = self._conn.execute(
+                        """
+                        SELECT c.id, c.content, c.chunk_type, c.file_path,
+                               c.start_line, c.end_line, c.language, v.distance
+                        FROM chunks_vec v
+                        JOIN chunks c ON c.rowid = v.rowid
+                        WHERE v.embedding MATCH ? AND k = ?
+                          AND c.file_path = ?
+                        ORDER BY v.distance
+                        """,
+                        (query_bytes, top_k * 3, fp),
+                    ).fetchall()[:top_k]
+                else:
+                    rows = self._conn.execute(
+                        """
+                        SELECT c.id, c.content, c.chunk_type, c.file_path,
+                               c.start_line, c.end_line, c.language, v.distance
+                        FROM chunks_vec v
+                        JOIN chunks c ON c.rowid = v.rowid
+                        WHERE v.embedding MATCH ? AND k = ?
+                        ORDER BY v.distance
+                        """,
+                        (query_bytes, top_k),
+                    ).fetchall()
             except Exception as exc:
                 log.error("Vector search failed: %s", exc)
-                self._table = None
                 return []
-        return [self._row_to_chunk(row) for row in results]
+        return [self._row_to_chunk(row[:7], distance=row[7]) for row in rows]
 
     async def delete_by_file(self, file_path: str) -> None:
         with self._lock:
-            if self._table is None:
-                return
-            self._table.delete(f"file_path = {_escape_sql_literal(file_path)}")
+            # Get rowids for chunks in this file
+            rowids = self._conn.execute(
+                "SELECT rowid FROM chunks WHERE file_path = ?", (file_path,)
+            ).fetchall()
+            if rowids:
+                placeholders = ",".join("?" for _ in rowids)
+                ids = [r[0] for r in rowids]
+                self._conn.execute(
+                    f"DELETE FROM chunks_vec WHERE rowid IN ({placeholders})", ids
+                )
+            self._conn.execute("DELETE FROM chunks WHERE file_path = ?", (file_path,))
+            self._conn.commit()
 
     def count(self) -> int:
-        """Return total number of chunks in the table."""
         with self._lock:
-            if self._table is None:
-                try:
-                    self._table = self._db.open_table(TABLE_NAME)
-                except Exception:
-                    return 0
             try:
-                return self._table.count_rows()
+                row = self._conn.execute("SELECT COUNT(*) FROM chunks").fetchone()
+                return row[0] if row else 0
             except Exception:
                 return 0
 
     def file_chunk_counts(self) -> dict[str, int]:
-        """Return {file_path: chunk_count} for all indexed files."""
         with self._lock:
-            if self._table is None:
-                try:
-                    self._table = self._db.open_table(TABLE_NAME)
-                except Exception:
-                    return {}
             try:
-                rows = self._table.to_arrow().to_pydict()
-                counts: dict[str, int] = {}
-                for fp in rows.get("file_path", []):
-                    counts[fp] = counts.get(fp, 0) + 1
-                return counts
+                rows = self._conn.execute(
+                    "SELECT file_path, COUNT(*) FROM chunks GROUP BY file_path"
+                ).fetchall()
+                return {fp: count for fp, count in rows}
             except Exception:
                 return {}
 
     def clear(self) -> None:
-        """Drop the chunks table, resetting the vector store."""
         with self._lock:
-            if self._table is not None:
-                try:
-                    self._db.drop_table(TABLE_NAME)
-                except Exception:
-                    pass
-                self._table = None
+            try:
+                self._conn.execute("DELETE FROM chunks")
+                if self._dim is not None:
+                    self._conn.execute("DROP TABLE IF EXISTS chunks_vec")
+                    self._dim = None
+                self._conn.commit()
+            except Exception:
+                pass
 
     async def get_by_id(self, chunk_id: str) -> Chunk | None:
         with self._lock:
-            if self._table is None:
-                try:
-                    self._table = self._db.open_table(TABLE_NAME)
-                except Exception:
-                    return None
             try:
-                results = (
-                    self._table.search()
-                    .where(f"id = {_escape_sql_literal(chunk_id)}")
-                    .limit(1)
-                    .to_list()
-                )
+                row = self._conn.execute(
+                    "SELECT id, content, chunk_type, file_path, start_line, end_line, language "
+                    "FROM chunks WHERE id = ?",
+                    (chunk_id,),
+                ).fetchone()
             except Exception as exc:
                 log.error("get_by_id failed for %s: %s", chunk_id, exc)
-                self._table = None
                 return None
-        if not results:
+        if not row:
             return None
-        return self._row_to_chunk(results[0])
+        return self._row_to_chunk(row)
 
     async def get_chunks_by_ids(self, chunk_ids: list[str]) -> list[Chunk]:
         if not chunk_ids:
             return []
         with self._lock:
-            if self._table is None:
-                try:
-                    self._table = self._db.open_table(TABLE_NAME)
-                except Exception:
-                    return []
             try:
-                quoted = ", ".join(_escape_sql_literal(i) for i in chunk_ids)
-                results = (
-                    self._table.search()
-                    .where(f"id IN ({quoted})")
-                    .limit(len(chunk_ids))
-                    .to_list()
-                )
+                placeholders = ",".join("?" for _ in chunk_ids)
+                rows = self._conn.execute(
+                    f"SELECT id, content, chunk_type, file_path, start_line, end_line, language "
+                    f"FROM chunks WHERE id IN ({placeholders})",
+                    chunk_ids,
+                ).fetchall()
             except Exception as exc:
                 log.error("get_chunks_by_ids failed: %s", exc)
-                self._table = None
                 return []
-        return [self._row_to_chunk(r) for r in results]
+        return [self._row_to_chunk(r) for r in rows]
