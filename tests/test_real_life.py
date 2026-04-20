@@ -305,6 +305,52 @@ class TestMCPSimulation:
             os.chdir(old_cwd)
 
 
+# ── Graph expansion end-to-end ─────────────────────────────────────────
+
+class TestGraphExpansion:
+    """Test that retriever follows CALLS/IMPORTS edges to find related code."""
+
+    @pytest.fixture
+    def linked_project(self, tmp_path):
+        """Project with two files where one imports the other."""
+        proj = tmp_path / "linked"
+        proj.mkdir()
+        (proj / "auth.py").write_text(
+            "from utils import hash_password\n\n"
+            "def login(username, password):\n"
+            "    hashed = hash_password(password)\n"
+            "    return check_db(username, hashed)\n"
+        )
+        (proj / "utils.py").write_text(
+            "import hashlib\n\n"
+            "def hash_password(password: str) -> str:\n"
+            "    return hashlib.sha256(password.encode()).hexdigest()\n"
+        )
+        return proj
+
+    @pytest.mark.asyncio
+    async def test_graph_expansion_pulls_related_file(self, linked_project, tmp_path, embedder):
+        """Searching for 'login' should also surface utils.py via import edge."""
+        storage_base = tmp_path / "storage"
+        storage_base.mkdir()
+        config = load_config()
+        config.storage_path = str(storage_base)
+
+        await run_indexing(config, str(linked_project), full=True)
+
+        project_storage = storage_base / linked_project.name
+        backend = LocalBackend(base_path=str(project_storage))
+        retriever = HybridRetriever(backend=backend, embedder=embedder)
+
+        chunks = await retriever.retrieve("login authentication", top_k=10)
+        file_paths = {c.file_path for c in chunks}
+        # auth.py should be a direct hit
+        assert "auth.py" in file_paths, f"auth.py not found in {file_paths}"
+        # utils.py should appear via graph expansion (auth.py imports it)
+        # or via vector similarity — either way it must be discoverable
+        assert "utils.py" in file_paths, f"utils.py not found in {file_paths} — graph expansion may be broken"
+
+
 # ── Bootstrap builder ──────────────────────────────────────────────────
 
 class TestBootstrapRealLife:

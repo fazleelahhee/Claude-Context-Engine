@@ -1,26 +1,38 @@
 """Service management for CCE — Ollama and Dashboard start/stop/status.
 
-PID files live in ~/.claude-context-engine/pids/:
+PID files live in <storage_base>/pids/ where storage_base is resolved
+from config.yaml (defaults to ~/.claude-context-engine):
   ollama.pid       PID of the ollama process CCE started
   dashboard.pid    PID of the dashboard process CCE started
   dashboard.port   Port the dashboard is running on
 """
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import socket
 import subprocess
-import sys
 from pathlib import Path
 
+log = logging.getLogger(__name__)
 
-_STORAGE_BASE = Path.home() / ".claude-context-engine"
 _DASHBOARD_DEFAULT_PORT = 8080
 
 
+def _storage_base() -> Path:
+    """Resolve storage base from config, falling back to default."""
+    try:
+        from context_engine.config import load_config
+        config = load_config()
+        return Path(config.storage_path).parent
+    except Exception as exc:
+        log.debug("Could not load config for storage base, using default: %s", exc)
+        return Path.home() / ".claude-context-engine"
+
+
 def _pid_dir() -> Path:
-    d = _STORAGE_BASE / "pids"
+    d = _storage_base() / "pids"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -70,14 +82,33 @@ def _ollama_running() -> bool:
 
 
 def _mcp_running() -> bool:
-    """Check if a cce serve process is running (read-only)."""
+    """Check if a cce serve process is running via pgrep (or ps fallback)."""
     try:
         result = subprocess.run(
-            ["ps", "aux"], capture_output=True, text=True, timeout=3
+            ["pgrep", "-f", "cce serve"],
+            capture_output=True, text=True, timeout=3,
         )
-        return "cce serve" in result.stdout
+        if result.returncode == 0:
+            return True
+        # returncode 1 = no matches (normal). Any other code or stderr
+        # suggests pgrep itself failed — fall through to ps fallback.
+        if result.returncode == 1 and not result.stderr.strip():
+            return False
+    except FileNotFoundError:
+        pass
     except Exception:
-        return False
+        pass
+    # Fallback: ps with grep exclusion
+    try:
+        result = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, timeout=3,
+        )
+        for line in result.stdout.splitlines():
+            if "cce serve" in line and "grep" not in line:
+                return True
+    except Exception:
+        pass
+    return False
 
 
 # ── Public status API ─────────────────────────────────────────────────────────
@@ -184,9 +215,10 @@ def start_dashboard(port: int = _DASHBOARD_DEFAULT_PORT) -> tuple[bool, str]:
     if status["running"]:
         return False, f"Dashboard is already running at {status['detail']}"
     try:
-        cce_bin = Path(sys.argv[0]).resolve()
+        from context_engine.utils import resolve_cce_binary
+        cce_bin = resolve_cce_binary()
         proc = subprocess.Popen(
-            [str(cce_bin), "dashboard", "--no-browser", "--port", str(port)],
+            [cce_bin, "dashboard", "--no-browser", "--port", str(port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
