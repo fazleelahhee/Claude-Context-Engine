@@ -181,6 +181,14 @@ Without CCE:        Read payments.py + shipping.py ->  45k tokens
 | `cce dashboard` | Open the web dashboard |
 | `cce dashboard --port 8080` | Open on a specific port |
 | `cce dashboard --no-browser` | Start server without opening a browser |
+| `cce services` | Show status of Ollama and Dashboard |
+| `cce services start` | Start all services (Ollama + Dashboard) |
+| `cce services stop` | Stop all services started by CCE |
+| `cce services start ollama` | Start Ollama in the background |
+| `cce services stop ollama` | Stop Ollama (only if started by CCE) |
+| `cce services start dashboard` | Start dashboard on port 8080 |
+| `cce services stop dashboard` | Stop dashboard |
+| `cce services start dashboard --port 9000` | Start dashboard on a specific port |
 | `cce serve` | Start the MCP server (used by Claude Code) |
 
 ---
