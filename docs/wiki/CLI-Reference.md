@@ -125,6 +125,40 @@ cce savings --json
 
 ---
 
+## cce commands
+
+Manage project-specific rules, preferences, and commands. Stored in `.cce/commands.yaml`.
+
+```bash
+# Add rules Claude must follow
+cce commands add-rule 'Never generate down() in migrations'
+cce commands add-rule 'Use UUID for primary keys'
+
+# Set project preferences
+cce commands set-pref database PostgreSQL
+cce commands set-pref auth Sanctum
+
+# Add commands to lifecycle hooks
+cce commands add before_push 'composer test'
+cce commands add before_commit 'php-cs-fixer fix --dry-run'
+
+# Add named custom commands
+cce commands add-custom deploy 'kubectl apply -f k8s/'
+
+# List all (merged with workspace if present)
+cce commands list
+
+# Remove
+cce commands remove-rule 'Never generate down() in migrations'
+cce commands remove-pref database
+cce commands remove before_push 'composer test'
+cce commands remove custom deploy
+```
+
+**Workspace support:** Place a `.cce/commands.yaml` in a parent directory to define shared rules across multiple projects. Project configs extend the workspace. See [Project Commands](Project-Commands) for full details.
+
+---
+
 ## cce clear
 
 Clear all index data and reset stats for the current project. Useful when you want a clean slate after major refactoring.

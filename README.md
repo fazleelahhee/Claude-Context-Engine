@@ -393,6 +393,19 @@ indexer:
   ignore: [.git, node_modules, dist, coverage]
 ```
 
+### Project commands, rules & preferences
+
+Tell Claude how to work in each project. Stored in `.cce/commands.yaml`:
+
+```bash
+cce commands add-rule 'Never generate down() in migrations'
+cce commands set-pref database PostgreSQL
+cce commands add before_push 'composer test'
+cce commands add-custom deploy 'kubectl apply -f k8s/'
+```
+
+Claude sees these at every session start and follows them automatically. Supports workspace-level configs for multi-project directories — see [Project Commands wiki](docs/wiki/Project-Commands.md) for details.
+
 ### Resource profiles
 
 CCE auto-detects available memory and adjusts its behavior:
