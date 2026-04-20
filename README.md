@@ -185,7 +185,28 @@ def calculate_shipping(order, warehouse, method="standard"):
 
 Retrieved chunks are ranked by a combination of vector similarity, keyword match, and recency. Only chunks above the confidence threshold are returned.
 
-### 5. Progressive Disclosure
+### 5. Graph-Aware Expansion
+
+After the primary vector search, CCE walks the code graph one hop: if your result is in `auth.py`, it also fetches relevant chunks from files that `auth.py` calls or imports. This surfaces related context without requiring a second query.
+
+```text
+Query: "validate user token"
+Primary result: auth.py:validate_token (vector match)
+Graph hop:      utils.py:decode_jwt  (auth.py CALLS utils.py)
+                db.py:fetch_user     (auth.py CALLS db.py)
+```
+
+### 6. Overflow References
+
+When search results exceed the token budget, CCE lists the remainder as compact references instead of silently dropping them. Claude sees what exists and can fetch individual chunks on demand.
+
+```text
+2 more result(s) available (not shown to save tokens):
+  expand_chunk(chunk_id="abc123")  → payments.py:45 (confidence: 0.82)
+  expand_chunk(chunk_id="def456")  → orders.py:112  (confidence: 0.71)
+```
+
+### 7. Progressive Disclosure
 
 CCE starts with a project overview and expands only when Claude needs more detail. Each search retrieves a small, focused slice rather than loading entire files.
 
@@ -193,32 +214,108 @@ CCE starts with a project overview and expands only when Claude needs more detai
 
 ## CLI Commands
 
-| Command | Description |
-|---------|-------------|
-| `cce init` | One-time setup: index, git hooks, MCP config |
-| `cce index` | Re-index changed files |
-| `cce index --full` | Force a full re-index |
-| `cce index --path <path>` | Index a specific file or directory |
-| `cce status` | Show index config and token savings summary |
-| `cce savings` | Visual token savings report |
-| `cce savings --all` | Savings across all indexed projects |
-| `cce savings --json` | Machine-readable savings output |
-| `cce clear` | Clear all index data and reset stats for the current project |
-| `cce clear --yes` | Skip confirmation prompt |
-| `cce prune` | Remove index data for projects whose directories no longer exist |
-| `cce prune --dry-run` | Preview what prune would remove without deleting |
-| `cce dashboard` | Open the web dashboard |
-| `cce dashboard --port 8080` | Open on a specific port |
-| `cce dashboard --no-browser` | Start server without opening a browser |
-| `cce services` | Show status of Ollama and Dashboard |
-| `cce services start` | Start all services (Ollama + Dashboard) |
-| `cce services stop` | Stop all services started by CCE |
-| `cce services start ollama` | Start Ollama in the background |
-| `cce services stop ollama` | Stop Ollama (only if started by CCE) |
-| `cce services start dashboard` | Start dashboard on port 8080 |
-| `cce services stop dashboard` | Stop dashboard |
-| `cce services start dashboard --port 9000` | Start dashboard on a specific port |
-| `cce serve` | Start the MCP server (used by Claude Code) |
+### Setup
+
+```bash
+# Initialize CCE in a project — indexes code, installs git hooks, writes .mcp.json
+cd /path/to/your/project
+cce init
+
+# Re-index files changed since last commit
+cce index
+
+# Force a full re-index of every file
+cce index --full
+
+# Index a specific file or directory only
+cce index --path src/payments/
+```
+
+### Status and Savings
+
+```bash
+# Show index health, chunk count, and token savings summary
+cce status
+
+# Token savings report for the current project
+cce savings
+
+# Savings across every indexed project
+cce savings --all
+
+# Machine-readable JSON output
+cce savings --json
+```
+
+### Index Management
+
+```bash
+# Clear all index data and reset stats for the current project
+cce clear
+
+# Skip the confirmation prompt
+cce clear --yes
+
+# Remove stored index data for projects whose directories no longer exist
+cce prune
+
+# Preview what prune would remove without deleting anything
+cce prune --dry-run
+```
+
+### Dashboard
+
+```bash
+# Open the web dashboard in your browser
+cce dashboard
+
+# Open on a specific port
+cce dashboard --port 8080
+
+# Start the server without opening a browser (run in background)
+cce dashboard --no-browser
+```
+
+### Services
+
+The `services` command manages Ollama and the Dashboard as background processes so you do not need to leave a terminal blocked.
+
+```bash
+# Show status of all services
+cce services
+
+# Example output:
+# SERVICE     STATUS    DETAIL
+# ------------------------------------------------
+# ollama      running   localhost:11434 (external)
+# dashboard   stopped
+# mcp         running   managed by Claude Code
+
+# Start all services
+cce services start
+
+# Start only Ollama
+cce services start ollama
+
+# Start dashboard on the default port (8080)
+cce services start dashboard
+
+# Start dashboard on a custom port
+cce services start dashboard --port 9000
+
+# Stop all services started by CCE
+cce services stop
+
+# Stop only the dashboard
+cce services stop dashboard
+```
+
+### MCP Server
+
+```bash
+# Start the MCP server — Claude Code calls this automatically via .mcp.json
+cce serve
+```
 
 ---
 
@@ -360,6 +457,10 @@ Markdown and other text-based files are supported with line-based chunking. Go, 
 - [x] Token savings tracking and reporting
 - [x] Non-git project support
 - [x] Index management (`cce clear`, `cce prune`)
+- [x] Service management (`cce services`)
+- [x] Graph-aware 1-hop retrieval expansion
+- [x] Overflow result references in `context_search`
+- [x] Output terseness rules in generated `CLAUDE.md`
 - [ ] Tree-sitter support for Go, Rust, Java, C, and C++
 - [ ] Persistent session search across projects
 - [ ] Docker support for remote mode
