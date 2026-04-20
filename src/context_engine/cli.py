@@ -730,6 +730,73 @@ def dashboard(ctx: click.Context, port: int, no_browser: bool) -> None:
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="error")
 
 
+# ── services command group ────────────────────────────────────────────────────
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def services(ctx: click.Context) -> None:
+    """Show status of CCE services (Ollama, Dashboard)."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(services_status)
+
+
+@services.command(name="status")
+def services_status() -> None:
+    """Show status of all CCE services."""
+    from context_engine.services import get_ollama_status, get_dashboard_status, get_mcp_status
+
+    rows = [
+        get_ollama_status(),
+        get_dashboard_status(),
+        get_mcp_status(),
+    ]
+
+    click.echo(f"{'SERVICE':<12}{'STATUS':<10}DETAIL")
+    click.echo("-" * 48)
+
+    for row in rows:
+        running = row["running"]
+        status_text = "running" if running else "stopped"
+        status_col = click.style(f"{status_text:<10}", fg="green" if running else "red")
+        detail = row.get("detail", "")
+        click.echo(f"{row['name']:<12}{status_col}  {detail}")
+
+
+@services.command(name="start")
+@click.argument("service", required=False, type=click.Choice(["ollama", "dashboard", "all"]), default="all")
+@click.option("--port", default=8080, show_default=True, help="Dashboard port (only used when starting dashboard)")
+def services_start(service: str, port: int) -> None:
+    """Start CCE services. SERVICE: ollama | dashboard | all (default)."""
+    from context_engine.services import start_ollama, start_dashboard
+
+    targets = ["ollama", "dashboard"] if service == "all" else [service]
+
+    for target in targets:
+        if target == "ollama":
+            ok, msg = start_ollama()
+        else:
+            ok, msg = start_dashboard(port=port)
+        prefix = click.style("✓", fg="green") if ok else click.style("·", fg="yellow")
+        click.echo(f"  {prefix} {msg}")
+
+
+@services.command(name="stop")
+@click.argument("service", required=False, type=click.Choice(["ollama", "dashboard", "all"]), default="all")
+def services_stop(service: str) -> None:
+    """Stop CCE services. SERVICE: ollama | dashboard | all (default)."""
+    from context_engine.services import stop_ollama, stop_dashboard
+
+    targets = ["ollama", "dashboard"] if service == "all" else [service]
+
+    for target in targets:
+        if target == "ollama":
+            ok, msg = stop_ollama()
+        else:
+            ok, msg = stop_dashboard()
+        prefix = click.style("✓", fg="green") if ok else click.style("·", fg="yellow")
+        click.echo(f"  {prefix} {msg}")
+
+
 async def _run_index(config, project_dir: str, full: bool = False, verbose: bool = False) -> None:
     """Run indexing pipeline (thin wrapper over `indexer.pipeline.run_indexing`)."""
     from context_engine.indexer.pipeline import run_indexing
