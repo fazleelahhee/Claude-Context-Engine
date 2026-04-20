@@ -149,7 +149,21 @@ def _ensure_session_hook(project_dir: Path) -> None:
 
     if changed:
         settings_path.write_text(json.dumps(data, indent=2) + "\n")
-        click.echo("SessionStart hook installed for CCE status.")
+        _ok("SessionStart hook installed for CCE status")
+
+
+def _ok(msg: str) -> None:
+    """Print a green ✓ success line."""
+    click.echo(click.style("  ✓ ", fg="green", bold=True) + msg)
+
+
+def _warn(msg: str) -> None:
+    """Print a yellow ! warning line."""
+    click.echo(click.style("  ! ", fg="yellow") + msg)
+
+
+def _dim(msg: str) -> str:
+    return click.style(msg, fg="bright_black")
 
 
 def _preflight_check(config) -> None:
@@ -159,34 +173,41 @@ def _preflight_check(config) -> None:
     and reports Ollama status so users know what compression level they will get.
     """
     # --- Embedding model ---
-    click.echo("Checking embedding model...", nl=False)
+    click.echo(_dim("  Checking embedding model") + "...", nl=False)
     try:
         from fastembed import TextEmbedding
         model_name = getattr(config, "embedding_model", "BAAI/bge-small-en-v1.5")
         if "/" not in model_name:
             model_name = f"sentence-transformers/{model_name}"
-        # Instantiating TextEmbedding downloads the model on first use.
-        # Print a hint before triggering the download so users are not confused
-        # by a silent pause.
-        click.echo(" downloading if needed (60 MB, first time only)...", nl=False)
+        click.echo(_dim(" downloading if needed (60 MB, first time only)") + "...", nl=False)
         TextEmbedding(model_name)
-        click.echo(" ready.")
+        click.echo(" " + click.style("ready", fg="green"))
     except Exception as exc:
-        click.echo(f"\nWarning: could not load embedding model: {exc}", err=True)
-        click.echo("Indexing will attempt to continue but may fail.", err=True)
+        click.echo("")
+        _warn(f"Could not load embedding model: {exc}")
+        _warn("Indexing will attempt to continue but may fail.")
 
     # --- Ollama (optional) ---
     try:
         import httpx
         resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
         if resp.status_code == 200:
-            click.echo("Ollama detected — LLM summarization enabled (compression.level=standard).")
+            click.echo(
+                "  Ollama " + click.style("detected", fg="green") +
+                " — LLM summarization enabled."
+            )
         else:
-            click.echo("Ollama not running — falling back to truncation-based compression.")
-            click.echo("  To enable LLM summarization: ollama pull phi3:mini")
+            click.echo(
+                "  Ollama " + click.style("not running", fg="yellow") +
+                " — using truncation compression."
+            )
+            click.echo(_dim("  Tip: ollama pull phi3:mini for LLM summarization"))
     except Exception:
-        click.echo("Ollama not running — falling back to truncation-based compression.")
-        click.echo("  To enable LLM summarization: ollama pull phi3:mini")
+        click.echo(
+            "  Ollama " + click.style("not running", fg="yellow") +
+            " — using truncation compression."
+        )
+        click.echo(_dim("  Tip: ollama pull phi3:mini for LLM summarization"))
 
 
 def _ensure_claude_md(project_dir: Path) -> None:
@@ -196,13 +217,12 @@ def _ensure_claude_md(project_dir: Path) -> None:
         existing = claude_md.read_text()
         if _CCE_CLAUDE_MD_MARKER in existing:
             return  # already has CCE block
-        # Append to existing file
         new_content = existing.rstrip() + "\n\n" + _CCE_CLAUDE_MD_BLOCK
         claude_md.write_text(new_content)
-        click.echo("CCE instructions appended to existing CLAUDE.md.")
+        _ok("CLAUDE.md updated with CCE instructions")
     else:
         claude_md.write_text(_CCE_CLAUDE_MD_BLOCK)
-        click.echo("CLAUDE.md created with CCE instructions.")
+        _ok("CLAUDE.md created with CCE instructions")
 
 
 @click.group()
@@ -226,7 +246,12 @@ def init(ctx: click.Context) -> None:
     config = ctx.obj["config"]
     project_dir = Path.cwd()
 
-    click.echo(f"Initializing CCE for: {project_dir.name}")
+    click.echo("")
+    click.echo(
+        click.style("  Claude Context Engine", fg="cyan", bold=True) +
+        click.style(f"  ·  {project_dir.name}", fg="white", bold=True)
+    )
+    click.echo(_dim("  " + "─" * 44))
     click.echo("")
 
     # 1. Pre-flight: verify embedding model + report Ollama status
@@ -245,19 +270,17 @@ def init(ctx: click.Context) -> None:
     if is_git_repo:
         installed = install_hooks(str(project_dir))
         if installed:
-            click.echo(f"Git hooks installed ({len(installed)} hooks — index updates automatically on commit).")
+            _ok(f"Git hooks installed  " + _dim(f"({len(installed)} hooks, auto-updates on commit)"))
     else:
-        click.echo(
-            "Note: not a git repository — git hook skipped.\n"
-            "Run `cce index` manually after making changes."
-        )
+        _warn("Not a git repository — git hook skipped")
+        click.echo(_dim("    Run `cce index` manually after making changes."))
 
     # 4. MCP config
     configured = _configure_mcp(project_dir)
     if configured:
-        click.echo("MCP server registered in .mcp.json.")
+        _ok("MCP server registered in " + click.style(".mcp.json", fg="cyan"))
     else:
-        click.echo("MCP server already in .mcp.json.")
+        _ok("MCP server already configured in " + click.style(".mcp.json", fg="cyan"))
 
     # 5. CLAUDE.md + session hook
     _ensure_claude_md(project_dir)
@@ -265,13 +288,19 @@ def init(ctx: click.Context) -> None:
 
     # 6. .gitignore — add CCE per-machine entries
     ensure_gitignore(str(project_dir))
-    click.echo(".gitignore updated with CCE entries.")
+    _ok(".gitignore updated with CCE entries")
 
     click.echo("")
-    click.echo("Indexing project...")
+    click.echo(
+        "  " + click.style("Indexing project", fg="cyan", bold=True) + "..."
+    )
     asyncio.run(_run_index(config, str(project_dir), full=True))
     click.echo("")
-    click.echo("Done. Restart Claude Code to activate CCE.")
+    click.echo(
+        click.style("  Done!", fg="green", bold=True) +
+        click.style("  Restart Claude Code to activate CCE.", fg="white")
+    )
+    click.echo("")
 
 
 @main.command()
@@ -283,8 +312,8 @@ def index(ctx: click.Context, full: bool, path: str | None) -> None:
     config = ctx.obj["config"]
     verbose = ctx.obj["verbose"]
     project_dir = str(Path.cwd())
+    click.echo("  " + click.style("Indexing", fg="cyan", bold=True) + "...")
     asyncio.run(_run_index(config, project_dir, full=full, target_path=path, verbose=verbose))
-    click.echo("Indexing complete.")
 
 
 @main.command()
@@ -872,11 +901,19 @@ async def _run_index(
     log_fn = (lambda msg: click.echo(msg)) if verbose else None
 
     _showed_progress = False
+    _bar_width = 30
 
     def progress_fn(current: int, total: int) -> None:
         nonlocal _showed_progress
         if not verbose and sys.stdout.isatty():
-            click.echo(f"\r  Scanning... {current}/{total} files", nl=False)
+            filled = int(_bar_width * current / total) if total else 0
+            bar = (
+                click.style("█" * filled, fg="cyan") +
+                click.style("░" * (_bar_width - filled), fg="bright_black")
+            )
+            pct = click.style(f"{int(100 * current / total) if total else 0}%", fg="bright_black")
+            count = click.style(f"{current}/{total}", fg="white", bold=True)
+            click.echo(f"\r    {bar}  {count} files  {pct}", nl=False)
             _showed_progress = True
 
     result = await run_indexing(
@@ -885,14 +922,27 @@ async def _run_index(
     )
 
     if _showed_progress:
-        click.echo()  # clear the progress line
+        click.echo()  # newline after progress bar
 
     for err in result.errors:
-        click.echo(f"Error: {err}", err=True)
+        click.echo(
+            "  " + click.style("✗ ", fg="red", bold=True) + click.style(err, fg="red"),
+            err=True,
+        )
+
+    n_files = len(result.indexed_files)
+    detail_parts = []
+    if result.deleted_files:
+        detail_parts.append(f"{len(result.deleted_files)} deleted")
+    if result.skipped_files:
+        detail_parts.append(f"{len(result.skipped_files)} non-text skipped")
+    detail = ("  " + _dim("· " + ", ".join(detail_parts))) if detail_parts else ""
+
     click.echo(
-        f"Indexed {result.total_chunks} chunks from {len(result.indexed_files)} files"
-        + (f", pruned {len(result.deleted_files)} deleted" if result.deleted_files else "")
-        + (f", skipped {len(result.skipped_files)} non-text" if result.skipped_files else "")
+        "  " + click.style("✓ ", fg="green", bold=True) +
+        click.style(f"Indexed {result.total_chunks:,} chunks", fg="white", bold=True) +
+        click.style(f" from {n_files:,} file{'s' if n_files != 1 else ''}", fg="white") +
+        detail
     )
 
 
