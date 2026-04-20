@@ -152,6 +152,43 @@ def _ensure_session_hook(project_dir: Path) -> None:
         click.echo("SessionStart hook installed for CCE status.")
 
 
+def _preflight_check(config) -> None:
+    """Verify all required components are ready before indexing starts.
+
+    Downloads the embedding model on first use with a clear progress message,
+    and reports Ollama status so users know what compression level they will get.
+    """
+    # --- Embedding model ---
+    click.echo("Checking embedding model...", nl=False)
+    try:
+        from fastembed import TextEmbedding
+        model_name = getattr(config, "embedding_model", "BAAI/bge-small-en-v1.5")
+        if "/" not in model_name:
+            model_name = f"sentence-transformers/{model_name}"
+        # Instantiating TextEmbedding downloads the model on first use.
+        # Print a hint before triggering the download so users are not confused
+        # by a silent pause.
+        click.echo(" downloading if needed (60 MB, first time only)...", nl=False)
+        TextEmbedding(model_name)
+        click.echo(" ready.")
+    except Exception as exc:
+        click.echo(f"\nWarning: could not load embedding model: {exc}", err=True)
+        click.echo("Indexing will attempt to continue but may fail.", err=True)
+
+    # --- Ollama (optional) ---
+    try:
+        import httpx
+        resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
+        if resp.status_code == 200:
+            click.echo("Ollama detected — LLM summarization enabled (compression.level=standard).")
+        else:
+            click.echo("Ollama not running — falling back to truncation-based compression.")
+            click.echo("  To enable LLM summarization: ollama pull phi3:mini")
+    except Exception:
+        click.echo("Ollama not running — falling back to truncation-based compression.")
+        click.echo("  To enable LLM summarization: ollama pull phi3:mini")
+
+
 def _ensure_claude_md(project_dir: Path) -> None:
     """Add CCE instructions to CLAUDE.md if not already present."""
     claude_md = project_dir / "CLAUDE.md"
@@ -185,45 +222,56 @@ def main(ctx: click.Context, verbose: bool) -> None:
 def init(ctx: click.Context) -> None:
     """Initialize context engine and connect it to Claude Code."""
     from context_engine.indexer.git_hooks import install_hooks
+    from context_engine.project_commands import ensure_gitignore
     config = ctx.obj["config"]
     project_dir = Path.cwd()
 
-    installed = install_hooks(str(project_dir))
-    if installed:
-        click.echo(f"Git hooks installed: {len(installed)} hooks")
+    click.echo(f"Initializing CCE for: {project_dir.name}")
+    click.echo("")
 
+    # 1. Pre-flight: verify embedding model + report Ollama status
+    _preflight_check(config)
+    click.echo("")
+
+    # 2. Storage
     project_name = project_dir.name
     storage_dir = Path(config.storage_path) / project_name
     storage_dir.mkdir(parents=True, exist_ok=True)
-    click.echo(f"Storage directory: {storage_dir}")
-
-    # Persist the source path so `cce prune` can detect deleted projects.
     meta_path = storage_dir / "meta.json"
     meta_path.write_text(json.dumps({"project_dir": str(project_dir.resolve())}))
 
+    # 3. Git hooks
+    is_git_repo = (project_dir / ".git").exists()
+    if is_git_repo:
+        installed = install_hooks(str(project_dir))
+        if installed:
+            click.echo(f"Git hooks installed ({len(installed)} hooks — index updates automatically on commit).")
+    else:
+        click.echo(
+            "Note: not a git repository — git hook skipped.\n"
+            "Run `cce index` manually after making changes."
+        )
+
+    # 4. MCP config
     configured = _configure_mcp(project_dir)
     if configured:
-        click.echo("MCP server registered in .mcp.json — restart Claude Code to activate.")
+        click.echo("MCP server registered in .mcp.json.")
     else:
         click.echo("MCP server already in .mcp.json.")
 
+    # 5. CLAUDE.md + session hook
     _ensure_claude_md(project_dir)
     _ensure_session_hook(project_dir)
 
-    # Add .cce/ to .gitignore
-    from context_engine.project_commands import ensure_gitignore
+    # 6. .gitignore — add CCE per-machine entries
     ensure_gitignore(str(project_dir))
+    click.echo(".gitignore updated with CCE entries.")
 
-    is_git_repo = (project_dir / ".git").exists()
-    if not is_git_repo:
-        click.echo(
-            "Note: not a git repository — git history will not be indexed.\n"
-            "To enable git indexing, run: git init && git add . && git commit -m 'init'"
-        )
-
-    click.echo("Running initial index...")
+    click.echo("")
+    click.echo("Indexing project...")
     asyncio.run(_run_index(config, str(project_dir), full=True))
-    click.echo("Done. Restart Claude Code if this is your first time running init.")
+    click.echo("")
+    click.echo("Done. Restart Claude Code to activate CCE.")
 
 
 @main.command()

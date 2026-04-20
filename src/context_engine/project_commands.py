@@ -228,18 +228,28 @@ def remove_preference(project_dir: str, key: str) -> bool:
     return True
 
 
+_GITIGNORE_ENTRIES = [
+    # CCE local cache and per-machine files
+    (".cce/", "CCE local cache (per-machine, not for version control)"),
+    (".claude/settings.local.json", "Claude Code local settings written by cce init"),
+]
+
+
 def ensure_gitignore(project_dir: str) -> None:
-    """Add .cce/ to .gitignore if not already there."""
+    """Add CCE-related entries to .gitignore if not already present."""
     gitignore = Path(project_dir) / ".gitignore"
-    marker = ".cce/"
-    if gitignore.exists():
-        content = gitignore.read_text()
-        if marker in content:
-            return
-        new_content = content.rstrip() + f"\n{marker}\n"
-        gitignore.write_text(new_content)
-    else:
-        gitignore.write_text(f"{marker}\n")
+    content = gitignore.read_text() if gitignore.exists() else ""
+
+    additions = []
+    for entry, comment in _GITIGNORE_ENTRIES:
+        if entry not in content:
+            additions.append(f"# {comment}\n{entry}")
+
+    if not additions:
+        return
+
+    block = "\n\n# CCE (claude-context-engine)\n" + "\n".join(additions) + "\n"
+    gitignore.write_text(content.rstrip() + block)
 
 
 def format_for_prompt(commands: dict, label: str = "Project") -> str:
