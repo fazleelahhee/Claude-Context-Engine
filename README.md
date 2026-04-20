@@ -22,9 +22,48 @@
 
 ---
 
-## Overview
+## The Problem
 
-Every Claude Code session starts cold. Without CCE, you either paste too much context and burn tokens, or paste too little and get weak answers. CCE solves this by building a persistent, searchable index of your repository and feeding Claude only the chunks it actually needs.
+Every Claude Code session starts cold. Claude has no memory of your project. You either paste a lot of files to give it context (burns tokens fast) or paste too little and get weak answers.
+
+Without CCE, every session looks like this:
+
+- You open a new session and Claude knows nothing about your project
+- You manually paste 3 to 4 files just to set the scene
+- Claude re-reads the same files every session
+- Large repos mean huge prompts, which are expensive and slow
+- Decisions you made last week have to be re-explained today
+
+**The token cost adds up fast:**
+
+```
+Without CCE:  paste payments.py + shipping.py = 45,000 tokens
+With CCE:     search "payment processing"      =    800 tokens
+```
+
+Over 30 queries in a project, that gap compounds into real money.
+
+## How CCE Fixes It
+
+CCE builds a persistent, searchable index of your codebase and feeds Claude only the chunks it actually needs.
+
+**Index once.** CCE splits your code into semantic chunks (functions, classes, modules) and stores them as vector embeddings locally. Git hooks keep the index current after every commit.
+
+**Retrieve exactly what is relevant.** When Claude needs to find `calculate_shipping`, it searches the index and gets back 600 tokens instead of an entire 800-line file.
+
+**Remember across sessions.** Architectural decisions, which files you touched, why you made a choice — stored and recalled automatically. No re-explaining.
+
+```text
+Session start:      Project overview               ->  10k tokens
+Search:             "Find payment processing"      ->   800 tokens
+Drill-down:         "Show full calculate_shipping" ->   600 tokens
+                                                    --------
+                                                    11.4k tokens
+
+Without CCE:        Read payments.py + shipping.py ->  45k tokens
+```
+
+## Overview
 
 | Problem | Without CCE | With CCE |
 |---------|-------------|----------|
@@ -148,17 +187,7 @@ Retrieved chunks are ranked by a combination of vector similarity, keyword match
 
 ### 5. Progressive Disclosure
 
-CCE starts small and expands only when Claude needs more detail.
-
-```text
-Session start:      Project overview               ->  10k tokens
-Search:             "Find payment processing"      ->   800 tokens
-Drill-down:         "Show full calculate_shipping" ->   600 tokens
-                                                    --------
-                                                    11.4k tokens
-
-Without CCE:        Read payments.py + shipping.py ->  45k tokens
-```
+CCE starts with a project overview and expands only when Claude needs more detail. Each search retrieves a small, focused slice rather than loading entire files.
 
 ---
 
