@@ -275,16 +275,15 @@ def init(ctx: click.Context) -> None:
 
 
 @main.command()
-@click.option("--full", is_flag=True, help="Force full re-index")
-@click.option("--path", type=str, default=None, help="Index specific file/directory")
-@click.option("--changed-only", is_flag=True, help="Only index changed files")
+@click.option("--full", is_flag=True, help="Force full re-index of every file")
+@click.option("--path", type=str, default=None, help="Index only this file or directory")
 @click.pass_context
-def index(ctx: click.Context, full: bool, path: str | None, changed_only: bool) -> None:
+def index(ctx: click.Context, full: bool, path: str | None) -> None:
     """Index or re-index project files."""
     config = ctx.obj["config"]
     verbose = ctx.obj["verbose"]
-    project_dir = path or str(Path.cwd())
-    asyncio.run(_run_index(config, project_dir, full=full, verbose=verbose))
+    project_dir = str(Path.cwd())
+    asyncio.run(_run_index(config, project_dir, full=full, target_path=path, verbose=verbose))
     click.echo("Indexing complete.")
 
 
@@ -363,7 +362,13 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
         except (KeyError, _json.JSONDecodeError):
             pass
     else:
-        click.echo("\nToken savings: no usage recorded yet (run context_search via MCP)")
+        storage_dir = Path(config.storage_path) / Path.cwd().name
+        vectors_dir = storage_dir / "vectors"
+        if not vectors_dir.exists():
+            click.echo("\nThis project has not been indexed yet.")
+            click.echo("Run: cce init")
+        else:
+            click.echo("\nToken savings: no usage recorded yet (run context_search via MCP)")
 
     if verbose:
         storage_path = Path(config.storage_path)
@@ -854,12 +859,18 @@ def services_stop(service: str) -> None:
         click.echo(f"  {prefix} {msg}")
 
 
-async def _run_index(config, project_dir: str, full: bool = False, verbose: bool = False) -> None:
+async def _run_index(
+    config,
+    project_dir: str,
+    full: bool = False,
+    target_path: str | None = None,
+    verbose: bool = False,
+) -> None:
     """Run indexing pipeline (thin wrapper over `indexer.pipeline.run_indexing`)."""
     from context_engine.indexer.pipeline import run_indexing
 
     log_fn = (lambda msg: click.echo(msg)) if verbose else None
-    result = await run_indexing(config, project_dir, full=full, log_fn=log_fn)
+    result = await run_indexing(config, project_dir, full=full, target_path=target_path, log_fn=log_fn)
     for err in result.errors:
         click.echo(f"Error: {err}", err=True)
     click.echo(
