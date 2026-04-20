@@ -97,21 +97,24 @@ cce init
 `cce init` handles everything in one step:
 
 ```
-Initializing CCE for: my-project
+  Claude Context Engine  ·  my-project
+  ────────────────────────────────────────────
 
-Checking embedding model... downloading if needed (60 MB, first time only)... ready.
-Ollama not running — falling back to truncation-based compression.
-  To enable LLM summarization: ollama pull phi3:mini
+  Checking embedding model... downloading if needed (60 MB, first time only)... ready.
+  Ollama not running — using truncation compression.
+  Tip: ollama pull phi3:mini for LLM summarization
 
-Git hooks installed (3 hooks — index updates automatically on commit).
-MCP server registered in .mcp.json.
-CLAUDE.md created with CCE instructions.
-.gitignore updated with CCE entries.
+  ✓ Git hooks installed  (3 hooks, auto-updates on commit)
+  ✓ MCP server registered in .mcp.json
+  ✓ CLAUDE.md created with CCE instructions
+  ✓ .gitignore updated with CCE entries
 
-Indexing project...
-Indexed 1,247 chunks from 89 files
+  Indexing project...
+    ██████████████████████████████  89/89 files  100%
 
-Done. Restart Claude Code to activate CCE.
+  ✓ Indexed 1,247 chunks from 89 files
+
+  Done!  Restart Claude Code to activate CCE.
 ```
 
 ### 3. Restart Claude Code
@@ -207,13 +210,13 @@ cce dashboard --no-browser     # server only, no browser open
 cce savings
 ```
 
-```text
-     my-project · 38 queries
-     14.2k / 48.0k tokens used (30%)
-
-     Token savings
-     With CCE:     14,200 tokens  (30%)
-     Tokens saved: 33,800 tokens  (70%)
+```
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   my-project · 38 queries
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   14.2k / 48.0k tokens used (30%)
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   Token savings
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ With CCE:     14,200 tokens  (30%)
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛶ Tokens saved:  33,800 tokens  (70%)
 ```
 
 Savings grow over time. Each query retrieves a targeted slice rather than an entire file. The alternative is pasting entire files on every session.
@@ -320,11 +323,11 @@ cce services stop ollama           # stop only Ollama
 Service status example:
 
 ```
-SERVICE     STATUS    DETAIL
-------------------------------------------------
-ollama      running   localhost:11434 (external)
-dashboard   stopped
-mcp         running   managed by Claude Code
+  SERVICE       STATUS      DETAIL
+  ──────────────────────────────────────────────────
+  ollama        running     localhost:11434 (external)
+  dashboard     stopped
+  mcp           running     managed by Claude Code
 ```
 
 ### Dashboard
