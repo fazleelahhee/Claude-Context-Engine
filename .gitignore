@@ -54,3 +54,6 @@ CLAUDE.md
 # Build artefacts
 docs/superpowers/
 *.db
+
+# Superpowers plugin session artifacts
+.superpowers/
