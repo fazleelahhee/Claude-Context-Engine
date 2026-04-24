@@ -256,24 +256,17 @@ def _show_welcome_banner(config) -> None:
     # Bottom border
     bottom = d("╰") + d("─" * (bw - 2)) + d("╯")
 
-    # Logo
-    logo_lines = [
-        "▐▛███▜▌",
-        "▝▜█████▛▘",
-        "▘▘ ▝▝",
-    ]
+    # Icon + tagline (random each run)
+    import random
+    icons = ["⛁", "◈", "⬡", "◉", "⏣", "⎔", "▣", "◇", "⬢", "❖"]
+    icon = random.choice(icons)
+    tagline = f"{icon}  {project_name}  {icon}"
 
     click.echo()
     click.echo(top)
     click.echo(center_line("", 0))
-
-    # Project name centered
-    click.echo(center_line(w(project_name), len(project_name)))
-    click.echo(center_line("", 0))
-
-    # Logo centered
-    for line in logo_lines:
-        click.echo(center_line(c(line), len(line)))
+    click.echo(center_line(s(tagline, fg="cyan", bold=True), len(tagline)))
+    click.echo(center_line(d("local context engine for Claude Code"), 37))
     click.echo(center_line("", 0))
 
     # Info line centered
