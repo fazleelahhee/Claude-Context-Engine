@@ -117,9 +117,30 @@ cce init
   Done!  Restart Claude Code to activate CCE.
 ```
 
-### 3. Restart Claude Code
+### 3. Run `cce` to verify
 
-Once restarted, Claude can call `context_search` and eight other MCP tools automatically — no setup needed per session.
+```
+╭─────────────────────────── Claude Context Engine v0.2.9 ────────────────────────────╮
+│                                                                                     │
+│                                     ⬡  C C E  ⬡                                     │
+│                                                                                     │
+│                                     my-project                                      │
+│               standard profile  ·  /Users/you/projects/my-project                   │
+│                                                                                     │
+├────────────────────────────────────────────┬────────────────────────────────────────┤
+│ Status                                     │ Getting started                        │
+│  ● Indexed      1,247 chunks               │  cce status    full diagnostics        │
+│  ● Embedding    BAAI/bge-small-en-v1.5     │  cce savings   token savings           │
+│  ○ Ollama       not running                │  cce list      all commands            │
+│  ● Compress     truncation                 │ ────────────────────────────────────── │
+│  ● Savings      70% over 38 queries        │  Embed:  BAAI/bge-small-en-v1.5        │
+│                                            │  Ollama: not running                   │
+╰────────────────────────────────────────────┴────────────────────────────────────────╯
+```
+
+### 4. Restart Claude Code
+
+Once restarted, Claude can call `context_search` and eight other MCP tools automatically. No setup needed per session.
 
 ---
 
@@ -279,56 +300,64 @@ When Claude records a decision (`record_decision`) or a code area (`record_code_
 
 ## CLI Commands
 
-### Setup
-
-```bash
-cce init                           # index project, install git hooks, write .mcp.json
-cce index                          # re-index changed files
-cce index --full                   # force full re-index
-cce index --path src/payments/     # index one file or directory
-```
-
-### Status and Savings
-
-```bash
-cce status                         # index health and token savings
-cce savings                        # token savings report
-cce savings --all                  # savings across every indexed project
-cce savings --json                 # machine-readable output
-```
-
-### Index Management
-
-```bash
-cce clear                          # clear index data (asks for confirmation)
-cce clear --yes                    # skip confirmation
-cce prune                          # remove data for deleted projects
-cce prune --dry-run                # preview without deleting
-```
-
-### Services
-
-```bash
-cce services                       # show status of Ollama, dashboard, MCP
-
-cce services start                 # start Ollama + dashboard
-cce services start ollama          # start only Ollama
-cce services start dashboard       # start dashboard on default port (8080)
-cce services start dashboard --port 9000
-
-cce services stop                  # stop everything CCE started
-cce services stop dashboard        # stop only dashboard
-cce services stop ollama           # stop only Ollama
-```
-
-Service status example:
+Run `cce list` to see all commands:
 
 ```
-  SERVICE       STATUS      DETAIL
-  ──────────────────────────────────────────────────
-  ollama        running     localhost:11434 (external)
-  dashboard     stopped
-  mcp           running     managed by Claude Code
+  ── Setup ─────────────────────────────────────────
+    cce init                            Index project, install git hooks, write .mcp.json
+    cce index                           Re-index changed files
+    cce index --full                    Force full re-index of every file
+    cce index --path <file>             Index one file or directory
+
+  ── Status & Savings ──────────────────────────────
+    cce status                          Index health, config, embedding model, Ollama status
+    cce savings                         Token savings report with visual grid
+    cce savings --all                   Savings across every indexed project
+
+  ── Index Management ──────────────────────────────
+    cce clear                           Clear all index data (asks for confirmation)
+    cce prune                           Remove data for deleted projects
+
+  ── Services ──────────────────────────────────────
+    cce services                        Show status of Ollama, dashboard, MCP
+    cce services start                  Start Ollama + dashboard
+    cce services stop                   Stop everything CCE started
+
+  ── Project Commands ──────────────────────────────
+    cce commands list                   Show all rules, preferences, and hooks
+    cce commands add-rule '<rule>'      Add a project rule
+    cce commands set-pref <key> <val>   Set a preference
+    cce commands add <hook> '<cmd>'     Add to before_push / before_commit / on_start
+```
+
+### `cce status`
+
+```
+  ── Status · my-project ──────────────────────────
+
+    ● Storage       /Users/you/.claude-context-engine/projects
+    ● Compression   standard
+    ● Profile       standard
+    ● Embedding     BAAI/bge-small-en-v1.5
+    ○ Ollama        not running
+    ● Compress      truncation (signatures + docstrings)
+
+  ── Token Savings ─────────────────────────────────
+
+    Queries:        42
+    Full codebase:  58,000 tokens
+    Served:         18,400 tokens
+    ✓ Saved: 39,600 tokens (68%)
+```
+
+### `cce services`
+
+```
+  ── Services ──────────────────────────────────────
+
+    ● ollama       running   localhost:11434 (external)
+    ○ dashboard    stopped
+    ● mcp          running   managed by Claude Code
 ```
 
 ### Dashboard
@@ -475,6 +504,11 @@ All other text-based files (Markdown, YAML, config files, etc.) are chunked by l
 - [x] Output terseness rules in generated `CLAUDE.md`
 - [x] Pre-flight check in `cce init` (embedding model warmup + Ollama hint)
 - [x] Comprehensive `.gitignore` for CCE-generated per-machine files
+- [x] Live file watcher (auto re-indexes on save during `cce serve`)
+- [x] Project commands, rules, and preferences (`cce commands`)
+- [x] Welcome banner with 2-column status display (`cce`)
+- [x] Colorful CLI output with section headers and line-by-line animation
+- [x] sqlite-vec migration (54% smaller install, same search quality)
 - [ ] Tree-sitter support for Go, Rust, Java, C, and C++
 - [ ] Persistent session search across projects
 - [ ] Docker support for remote mode

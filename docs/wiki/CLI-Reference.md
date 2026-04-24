@@ -2,7 +2,69 @@
 
 Complete reference for every `cce` command with expected output.
 
-All commands use colorful, structured output. Green `✓` marks successful steps. Yellow `·` marks warnings or skipped steps. Red `✗` marks errors. Dim gray text shows secondary information and tips.
+All commands use colorful, structured output with line-by-line animation on TTY:
+- `●` green bullet = healthy/active
+- `○` yellow bullet = warning/inactive
+- `✓` green check = success
+- `·` yellow dot = skipped/warning
+- `✗` red cross = error/removed
+- `──` cyan section headers with styled dividers
+- Dim gray text for secondary information and tips
+
+---
+
+## cce
+
+Running `cce` with no subcommand shows a welcome banner with project status at a glance:
+
+```
+╭─────────────────────────── Claude Context Engine v0.2.9 ────────────────────────────╮
+│                                                                                     │
+│                                     ⬡  C C E  ⬡                                     │
+│                                                                                     │
+│                                     my-project                                      │
+│               standard profile  ·  /Users/you/projects/my-project                   │
+│                                                                                     │
+├────────────────────────────────────────��───┬──────────────────────────────────────��─┤
+│ Status                                     │ Getting started                        │
+│  ● Indexed      1,247 chunks               │  cce status    full diagnostics        │
+│  ● Embedding    BAAI/bge-small-en-v1.5     │  cce savings   token savings           │
+│  ○ Ollama       not running                │  cce list      all commands            │
+│  ● Compress     truncation                 │ ────────────────────────────────────── │
+│  ● Savings      68% over 42 queries        │  Embed:  BAAI/bge-small-en-v1.5        │
+│                                            │  Ollama: not running                   │
+╰────────────────────────────────────────────┴────────────────────────────────────────╯
+```
+
+The icon next to "C C E" changes randomly each time. The left column shows engine status. The right column shows tips and engine details.
+
+---
+
+## cce list
+
+Shows every available command grouped by category:
+
+```
+  ── Setup ─────────────────────────────────────────
+    cce init                            Index project, install git hooks, write .mcp.json
+    cce index                           Re-index changed files
+    cce index --full                    Force full re-index of every file
+
+  ── Status & Savings ──────────────────────────────
+    cce status                          Index health, config, embedding, Ollama
+    cce savings                         Token savings report with visual grid
+    cce savings --all                   Savings across every indexed project
+
+  ── Services ──────────────────────────────────────
+    cce services                        Show status of Ollama, dashboard, MCP
+    cce services start                  Start Ollama + dashboard
+    cce services stop                   Stop everything CCE started
+
+  ── Project Commands ──────────────────────────────
+    cce commands list                   Show all rules, preferences, and hooks
+    cce commands add-rule '<rule>'      Add a project rule
+    cce commands set-pref <key> <val>   Set a preference
+```
 
 ---
 
@@ -117,14 +179,21 @@ cce status
 **Expected output:**
 
 ```
-  Storage path      ~/.claude-context-engine
-  Compression       standard
-  Resource profile  balanced
+  ── Status · my-project ──────────────────────────
 
-  Token savings  (42 queries)
-    Raw tokens:    58,000
-    Served tokens: 18,400
-    ✓ Saved:       39,600  (68%)
+    ● Storage       /Users/you/.claude-context-engine/projects
+    ● Compression   standard
+    ● Profile       standard
+    ● Embedding     BAAI/bge-small-en-v1.5
+    ○ Ollama        not running
+    ● Compress      truncation (signatures + docstrings)
+
+  ── Token Savings ─────────────────────────────────
+
+    Queries:        42
+    Full codebase:  58,000 tokens
+    Served:         18,400 tokens
+    ✓ Saved: 39,600 tokens (68%)
 ```
 
 **When not yet indexed:**
@@ -246,7 +315,16 @@ cce clear
 CCE asks for confirmation before deleting:
 
 ```
-Clear all index data for 'my-project'? This cannot be undone. [y/N]:
+  ── Clear Index ───────────────────────────────────
+
+    Delete all index data for my-project? [y/N]:
+```
+
+**After clearing:**
+
+```
+    ✓ Cleared index data for my-project
+    Run cce index to rebuild
 ```
 
 ```bash
@@ -269,8 +347,10 @@ cce prune
 **Expected output:**
 
 ```
-    ✗ removed  old-project  (source: /Users/raj/projects/old-project)
-    ✓ kept     my-project   (/Users/raj/projects/my-project)
+  ── Prune ─────────────────────────────────────────
+
+    ✗ removed      old-project  /Users/raj/projects/old-project
+    ✓ kept         my-project   /Users/raj/projects/my-project
 ```
 
 ```bash
@@ -281,8 +361,10 @@ cce prune --dry-run
 **Dry-run output:**
 
 ```
-    · [dry-run] would remove  old-project  (source: /Users/raj/projects/old-project)
-    ✓ kept                    my-project   (/Users/raj/projects/my-project)
+  ── Prune (dry run) ───────────────────────────────
+
+    · would remove  old-project  /Users/raj/projects/old-project
+    ✓ kept          my-project   /Users/raj/projects/my-project
 ```
 
 ---
@@ -331,11 +413,11 @@ cce services
 **Expected output:**
 
 ```
-  SERVICE       STATUS      DETAIL
-  ──────────────────────────────────────────────────
-  ollama        running     localhost:11434 (external)
-  dashboard     stopped
-  mcp           running     managed by Claude Code
+  ── Services ──────────────────────────────────────
+
+    ● ollama       running   localhost:11434 (external)
+    ○ dashboard    stopped
+    ● mcp          running   managed by Claude Code
 ```
 
 `ollama` and `dashboard` can be started and stopped by CCE. `mcp` is managed by Claude Code and shown read-only.
