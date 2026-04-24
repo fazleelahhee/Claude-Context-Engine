@@ -164,8 +164,10 @@ def _dim(msg: str) -> str:
 
 
 def _show_welcome_banner(config) -> None:
-    """Show a welcome banner when cce is run with no subcommand."""
+    """Show an animated welcome banner when cce is run with no subcommand."""
     import json as _json
+    import random
+    import time
     from importlib.metadata import version as pkg_version
 
     try:
@@ -212,124 +214,143 @@ def _show_welcome_banner(config) -> None:
     except Exception:
         pass
 
-    # Embedding model
     embedding_model = getattr(config, "embedding_model", "BAAI/bge-small-en-v1.5")
-    compression_mode = f"LLM summarization ({ollama_model})" if ollama_running else "truncation"
+    compression_mode = f"LLM ({ollama_model})" if ollama_running else "truncation"
+    profile = config.detect_resource_profile()
     indexed = chunks > 0
 
-    # Styling helpers
-    s = click.style
-    d = lambda t: s(t, dim=True)
-    c = lambda t: s(t, fg="cyan")
-    g = lambda t: s(t, fg="green")
-    w = lambda t: s(t, fg="white", bold=True)
-    y = lambda t: s(t, fg="yellow")
-
-    import random
     icons = ["⛁", "◈", "⬡", "◉", "⏣", "⎔", "▣", "◇", "⬢", "❖"]
     icon = random.choice(icons)
-    profile = config.detect_resource_profile()
 
-    # Layout: total width 100, left col 48, separator 1, right col 49
-    W = 100
-    L = 48  # left column inner width
-    R = 49  # right column inner width
-    bd = d("│")
-    sep = d("│")
+    # ── Colors ──
+    CYAN = "\033[36m"
+    CYAN_B = "\033[1;36m"
+    GREEN = "\033[32m"
+    GREEN_B = "\033[1;32m"
+    YELLOW = "\033[33m"
+    WHITE_B = "\033[1;37m"
+    DIM = "\033[2m"
+    MAGENTA = "\033[35m"
+    RESET = "\033[0m"
 
-    def _pad(text: str, width: int, raw_len: int, align: str = "left") -> str:
-        gap = width - raw_len
-        if gap < 0:
-            gap = 0
-        if align == "center":
-            lp = gap // 2
-            rp = gap - lp
-            return " " * lp + text + " " * rp
-        return text + " " * gap
+    # ── Layout ──
+    W = 80  # total box width
+    LW = 38  # left column content width
+    RW = 38  # right column content width
+    # Total: 1(border) + 1(pad) + LW + 1(pad) + 1(sep) + 1(pad) + RW + 1(pad) + 1(border) = LW + RW + 6 + 1(sep) = 83
+    # Let's use: │ <LW> │ <RW> │  where each side has 1 space padding
+    # W = 2 + (LW + 2) + 1 + (RW + 2) - 1 = LW + RW + 6
+    # For W=80: LW + RW = 74, so LW=36, RW=38
+    LW = 36
+    RW = 38
 
-    # Top border (full width, row 1 header)
-    title = f" Claude Context Engine v{ver} "
-    dashes = W - 2 - len(title)
-    ld = dashes // 2
-    rd = dashes - ld
-    top = d("╭") + d("─" * ld) + c(title) + d("─" * rd) + d("╮")
+    def _lpad(text: str, raw_len: int, width: int) -> str:
+        return " " + text + " " * max(0, width - raw_len) + " "
 
-    # Mid divider
-    mid_div = d("├") + d("─" * L) + d("┬") + d("─" * R) + d("┤")
+    def _cpad(text: str, raw_len: int, width: int) -> str:
+        total = width + 2  # +2 for side padding
+        lp = max(0, (total - raw_len) // 2)
+        rp = max(0, total - raw_len - lp)
+        return " " * lp + text + " " * rp
 
-    # Bottom border
-    bottom = d("╰") + d("─" * L) + d("┴") + d("─" * R) + d("╯")
-
-    # Section divider within right column
-    def right_div() -> str:
-        return d("├") + d("─" * L) + d("┤") + d("─" * R) + d("┤")
-
-    def row(left_text: str, left_raw: int, right_text: str, right_raw: int) -> str:
-        return f"{bd}{' '}{_pad(left_text, L - 1, left_raw)}{sep}{' '}{_pad(right_text, R - 1, right_raw)}{bd}"
-
-    def full_row(text: str, raw_len: int, align: str = "center") -> str:
+    def full_line(text: str, raw_len: int) -> str:
         inner = W - 2
-        return f"{bd}{_pad(text, inner, raw_len, align)}{bd}"
+        return f"{DIM}│{RESET}" + _cpad(text, raw_len, inner - 2) + f"{DIM}│{RESET}"
 
-    # ── Row 1: Title bar (full width) ──
-    click.echo()
-    click.echo(top)
+    def two_col(lt: str, ll: int, rt: str, rl: int) -> str:
+        left = _lpad(lt, ll, LW)
+        right = _lpad(rt, rl, RW)
+        return f"{DIM}│{RESET}{left}{DIM}│{RESET}{right}{DIM}│{RESET}"
 
-    # CCE logo + project name (centered, full width)
-    logo_text = f"{icon}  C C E  {icon}"
-    click.echo(full_row("", 0))
-    click.echo(full_row(s(logo_text, fg="cyan", bold=True), len(logo_text)))
-    click.echo(full_row(w(project_name), len(project_name)))
-    click.echo(full_row(d(f"v{ver} · {profile} · {project_dir}"), len(f"v{ver} · {profile} · {project_dir}")))
-    click.echo(full_row("", 0))
+    def border_top() -> str:
+        title = f" Claude Context Engine v{ver} "
+        dashes = W - 2 - len(title)
+        ld = dashes // 2
+        rd = dashes - ld
+        return f"{DIM}╭{'─' * ld}{RESET}{CYAN_B}{title}{RESET}{DIM}{'─' * rd}╮{RESET}"
 
-    # ── Row 2: Two columns ──
-    click.echo(mid_div)
+    def border_mid() -> str:
+        return f"{DIM}├{'─' * (LW + 2)}┬{'─' * (RW + 2)}┤{RESET}"
 
-    # Build left column lines (status)
-    left_lines: list[tuple[str, int]] = []
+    def border_bot() -> str:
+        return f"{DIM}╰{'─' * (LW + 2)}┴{'─' * (RW + 2)}╯{RESET}"
+
+    def border_full() -> str:
+        return f"{DIM}│{' ' * (W - 2)}│{RESET}"
+
+    # ── Build all lines first ──
+    output: list[str] = []
+
+    # Row 1: full-width header
+    output.append(border_top())
+    output.append(border_full())
+
+    # CCE branding
+    logo = f"{icon}  C C E  {icon}"
+    output.append(full_line(f"{CYAN_B}{logo}{RESET}", len(logo)))
+    output.append(border_full())
+    output.append(full_line(f"{WHITE_B}{project_name}{RESET}", len(project_name)))
+    sub = f"{profile} profile  ·  {project_dir}"
+    output.append(full_line(f"{DIM}{sub}{RESET}", len(sub)))
+    output.append(border_full())
+
+    # Row 2: two-column
+    output.append(border_mid())
+
+    # Left column: status
+    left: list[tuple[str, int]] = []
+    left.append((f"{WHITE_B}Status{RESET}", 6))
     if indexed:
-        left_lines.append((f"  {g('●')} Indexed     {c(f'{chunks:,}')} chunks", 11 + len(f"{chunks:,}") + 7))
-        left_lines.append((f"  {g('●')} Embedding   {c(embedding_model)}", 14 + len(embedding_model)))
-        ollama_val = f"{g('running')}" if ollama_running else f"{y('not running')}"
-        ollama_raw = 7 if ollama_running else 11
-        left_lines.append((f"  {g('●') if ollama_running else y('○')} Ollama      {ollama_val}", 14 + ollama_raw))
-        left_lines.append((f"  {g('●')} Compress    {c(compression_mode)}", 14 + len(compression_mode)))
+        left.append((f" {GREEN}●{RESET} Indexed      {CYAN}{chunks:,}{RESET} chunks", 15 + len(f"{chunks:,}") + 7))
+        left.append((f" {GREEN}●{RESET} Embedding    {CYAN}{embedding_model}{RESET}", 16 + len(embedding_model)))
+        if ollama_running:
+            left.append((f" {GREEN}●{RESET} Ollama       {GREEN}running{RESET}", 16 + 7))
+        else:
+            left.append((f" {YELLOW}○{RESET} Ollama       {YELLOW}not running{RESET}", 16 + 11))
+        left.append((f" {GREEN}●{RESET} Compress     {CYAN}{compression_mode}{RESET}", 16 + len(compression_mode)))
         if queries > 0:
-            sav = f"{g(f'{saved_pct}%')} over {c(str(queries))} queries"
-            left_lines.append((f"  {g('●')} Savings     {sav}", 14 + len(f"{saved_pct}%") + len(f" over {queries} queries")))
+            left.append((f" {GREEN}●{RESET} Savings      {GREEN_B}{saved_pct}%{RESET} over {CYAN}{queries}{RESET} queries", 16 + len(f"{saved_pct}%") + 6 + len(str(queries)) + 8))
         elif full_file > 0:
-            left_lines.append((f"  {d('○')} Savings     {d('no queries yet')}", 14 + len("no queries yet")))
+            left.append((f" {DIM}○ Savings      no queries yet{RESET}", 16 + 14))
     else:
-        left_lines.append((f"  {y('○')} Not indexed yet", 18))
-        left_lines.append((f"    {d('run: cce init')}", 4 + len("run: cce init")))
+        left.append((f" {YELLOW}○{RESET} {YELLOW}Not indexed{RESET}", 3 + 11))
+        left.append((f"   {DIM}run: cce init{RESET}", 3 + 13))
 
-    # Build right column lines (tips)
-    right_lines: list[tuple[str, int]] = []
-    right_lines.append((w("Tips"), 4))
+    # Right column: tips + engine
+    right: list[tuple[str, int]] = []
+    right.append((f"{WHITE_B}Getting started{RESET}", 15))
     if not indexed:
-        right_lines.append((f" {c('cce init')}      {d('setup project')}", 1 + 8 + 6 + 13))
-    right_lines.append((f" {c('cce status')}    {d('full diagnostic info')}", 1 + 10 + 4 + 20))
-    right_lines.append((f" {c('cce savings')}   {d('token savings report')}", 1 + 11 + 3 + 20))
-    right_lines.append((f" {c('cce list')}      {d('all available commands')}", 1 + 8 + 6 + 22))
-    right_lines.append(("", 0))
-    right_lines.append((d("─" * (R - 1)), R - 1))
-    right_lines.append((f" {d('Embedding:')}  {c(embedding_model)}", 1 + 10 + 2 + len(embedding_model)))
-    ollama_str = g("running") if ollama_running else y("not running")
-    ollama_str_len = 7 if ollama_running else 11
-    right_lines.append((f" {d('Ollama:')}     {ollama_str}", 1 + 7 + 5 + ollama_str_len))
+        right.append((f" {CYAN}cce init{RESET}      {DIM}setup project{RESET}", 1 + 8 + 6 + 13))
+    right.append((f" {CYAN}cce status{RESET}    {DIM}full diagnostics{RESET}", 1 + 10 + 4 + 16))
+    right.append((f" {CYAN}cce savings{RESET}   {DIM}token savings{RESET}", 1 + 11 + 3 + 13))
+    right.append((f" {CYAN}cce list{RESET}      {DIM}all commands{RESET}", 1 + 8 + 6 + 12))
+    right.append(("", 0))
+    right.append((f"{DIM}{'─' * RW}{RESET}", RW))
+    right.append((f" {DIM}Embed:{RESET}  {MAGENTA}{embedding_model}{RESET}", 1 + 6 + 2 + len(embedding_model)))
+    if ollama_running:
+        right.append((f" {DIM}Ollama:{RESET} {GREEN}running ({ollama_model}){RESET}", 1 + 7 + 1 + 9 + len(ollama_model) + 1))
+    else:
+        right.append((f" {DIM}Ollama:{RESET} {YELLOW}not running{RESET}", 1 + 7 + 1 + 11))
 
-    # Pad both columns to same height
-    max_rows = max(len(left_lines), len(right_lines))
-    while len(left_lines) < max_rows:
-        left_lines.append(("", 0))
-    while len(right_lines) < max_rows:
-        right_lines.append(("", 0))
+    # Pad columns to same height
+    max_h = max(len(left), len(right))
+    while len(left) < max_h:
+        left.append(("", 0))
+    while len(right) < max_h:
+        right.append(("", 0))
 
-    for (lt, ll), (rt, rl) in zip(left_lines, right_lines):
-        click.echo(row(lt, ll, rt, rl))
+    for (lt, ll), (rt, rl) in zip(left, right):
+        output.append(two_col(lt, ll, rt, rl))
 
-    click.echo(bottom)
+    output.append(border_bot())
+
+    # ── Animate: reveal line by line ──
+    click.echo()
+    is_tty = sys.stdout.isatty()
+    for i, line in enumerate(output):
+        click.echo(line)
+        if is_tty and i < 8:
+            time.sleep(0.03)
     click.echo()
 
 
