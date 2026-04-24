@@ -503,8 +503,9 @@ def index(ctx: click.Context, full: bool, path: str | None) -> None:
     config = ctx.obj["config"]
     verbose = ctx.obj["verbose"]
     project_dir = str(Path.cwd())
-    from context_engine.cli_style import header
-    click.echo("  " + header("Indexing") + "...")
+    from context_engine.cli_style import section, animate
+    lines = ["", section("Indexing " + Path.cwd().name)]
+    animate(lines)
     asyncio.run(_run_index(config, project_dir, full=full, target_path=path, verbose=verbose))
 
 
@@ -561,19 +562,27 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
         click.echo(_json.dumps(out, indent=2))
         return
 
-    from context_engine.cli_style import header, label, value, dim, success, warn, CHECK, DOT, CROSS
+    from context_engine.cli_style import (
+        header, label, value, dim, success, warn, magenta, section, animate,
+        CHECK, DOT, CROSS, BULLET, BULLET_OFF,
+    )
 
-    click.echo(f"  {label('Storage path')}     {value(config.storage_path)}")
-    click.echo(f"  {label('Compression')}      {value(config.compression_level)}")
-    click.echo(f"  {label('Resource profile')} {value(config.detect_resource_profile())}")
+    lines: list[str] = []
+    lines.append("")
+    lines.append(section("Status · " + Path.cwd().name))
+    lines.append("")
+    lines.append(f"    {BULLET} {label('Storage')}       {value(config.storage_path)}")
+    lines.append(f"    {BULLET} {label('Compression')}   {value(config.compression_level)}")
+    lines.append(f"    {BULLET} {label('Profile')}       {value(config.detect_resource_profile())}")
 
     # Embedding model
     model_name = getattr(config, "embedding_model", "BAAI/bge-small-en-v1.5")
-    click.echo(f"  {label('Embedding model')} {value(model_name)}")
+    lines.append(f"    {BULLET} {label('Embedding')}     {magenta(model_name)}")
 
     # Ollama status
-    ollama_status = click.style("not running", fg="yellow")
+    ollama_status = warn("not running")
     compression_mode = "truncation (signatures + docstrings)"
+    ollama_bullet = BULLET_OFF
     try:
         import httpx
         resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
@@ -581,18 +590,22 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
             ollama_model = getattr(config, "compression_model", "phi3:mini")
             models = [m.get("name", "") for m in resp.json().get("models", [])]
             if any(ollama_model in m for m in models):
-                ollama_status = click.style("running", fg="green") + dim(f" ({ollama_model})")
+                ollama_status = success("running") + dim(f" ({ollama_model})")
                 compression_mode = f"LLM summarization via {ollama_model}"
+                ollama_bullet = BULLET
             else:
-                ollama_status = click.style("running", fg="green") + dim(f" (model {ollama_model} not found)")
+                ollama_status = success("running") + dim(f" (model {ollama_model} not found)")
     except Exception:
         pass
-    click.echo(f"  {label('Ollama')}          {ollama_status}")
-    click.echo(f"  {label('Chunk compress')}  {value(compression_mode)}")
+    lines.append(f"    {ollama_bullet} {label('Ollama')}        {ollama_status}")
+    lines.append(f"    {BULLET} {label('Compress')}      {value(compression_mode)}")
 
     # Token savings
     project_name = Path.cwd().name
     stats_path = Path(config.storage_path) / project_name / "stats.json"
+    lines.append("")
+    lines.append(section("Token Savings"))
+    lines.append("")
     if stats_path.exists():
         try:
             stats = _json.loads(stats_path.read_text())
@@ -603,41 +616,43 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
             baseline = max(full, raw) if full > 0 else raw
             saved = max(0, baseline - served)
             pct = int(saved / baseline * 100) if baseline > 0 else 0
-            click.echo()
-            click.echo(f"  {header('Token savings')} {dim(f'({queries} queries)')}")
-            click.echo(f"    Full codebase: {value(f'{baseline:,}')}")
-            click.echo(f"    Served tokens: {value(f'{served:,}')}")
-            click.echo(f"    {CHECK} Saved:         {success(f'{saved:,}')} {dim(f'({pct}%)')}")
+            lines.append(f"    {dim('Queries:')}        {value(f'{queries:,}')}")
+            lines.append(f"    {dim('Full codebase:')}  {value(f'{baseline:,}')} {dim('tokens')}")
+            lines.append(f"    {dim('Served:')}         {value(f'{served:,}')} {dim('tokens')}")
+            lines.append(f"    {CHECK} {success(f'Saved: {saved:,} tokens ({pct}%)')}")
         except (KeyError, _json.JSONDecodeError):
-            pass
+            lines.append(f"    {DOT} {dim('Error reading stats')}")
     else:
-        click.echo()
         storage_dir = Path(config.storage_path) / Path.cwd().name
         vectors_dir = storage_dir / "vectors"
         if not vectors_dir.exists():
-            click.echo(f"  {DOT} {dim('Project not indexed yet — run: cce init')}")
+            lines.append(f"    {DOT} {dim('Project not indexed yet')}  {label('cce init')}")
         else:
-            click.echo(f"  {DOT} {dim('No usage recorded yet — run context_search via MCP')}")
+            lines.append(f"    {DOT} {dim('No usage recorded yet')}  {dim('run context_search via MCP')}")
 
     if verbose:
         storage_path = Path(config.storage_path)
         if storage_path.exists():
             projects = [d for d in storage_path.iterdir() if d.is_dir()]
-            click.echo()
-            click.echo(f"  {header('Projects indexed')} {value(str(len(projects)))}")
+            lines.append("")
+            lines.append(section("Projects Indexed"))
+            lines.append("")
             for project in projects:
-                chunks = list(project.glob("**/*.json"))
-                click.echo(f"    {dim('·')} {project.name}: {chunks} stored files")
+                chunks_count = len(list(project.glob("**/*.json")))
+                lines.append(f"    {dim('·')} {value(project.name)}  {dim(f'{chunks_count} files')}")
         else:
-            click.echo(f"  {DOT} {dim('Storage directory does not exist yet.')}")
+            lines.append(f"    {DOT} {dim('Storage directory does not exist yet.')}")
+
+    lines.append("")
+    animate(lines)
 
 
 @main.command("list")
 def list_commands() -> None:
     """Show all available CCE commands with usage examples."""
-    from context_engine.cli_style import header, dim, value, label, ARROW
+    from context_engine.cli_style import header, dim, value, label, section, animate, ARROW
 
-    sections = [
+    groups = [
         ("Setup", [
             ("cce init", "Index project, install git hooks, write .mcp.json"),
             ("cce index", "Re-index changed files"),
@@ -673,11 +688,11 @@ def list_commands() -> None:
             ("cce commands list", "Show all rules, preferences, and hooks"),
             ("cce commands add-rule '<rule>'", "Add a project rule"),
             ("cce commands remove-rule '<rule>'", "Remove a rule"),
-            ("cce commands set-pref <key> <value>", "Set a preference"),
+            ("cce commands set-pref <key> <val>", "Set a preference"),
             ("cce commands remove-pref <key>", "Remove a preference"),
-            ("cce commands add <hook> '<cmd>'", "Add to before_push, before_commit, or on_start"),
+            ("cce commands add <hook> '<cmd>'", "Add to before_push / before_commit / on_start"),
             ("cce commands remove <hook> '<cmd>'", "Remove from a hook"),
-            ("cce commands add-custom <name> '<cmd>'", "Add a named custom command"),
+            ("cce commands add-custom <n> '<c>'", "Add a named custom command"),
         ]),
         ("MCP Server", [
             ("cce serve", "Start MCP server (used by Claude Code)"),
@@ -689,13 +704,16 @@ def list_commands() -> None:
         ]),
     ]
 
-    click.echo()
-    for section_name, cmds in sections:
-        click.echo(f"  {header(section_name)}")
+    lines: list[str] = [""]
+    for group_name, cmds in groups:
+        lines.append(section(group_name))
         for cmd, desc in cmds:
-            click.echo(f"    {value(cmd)}")
-            click.echo(f"      {dim(desc)}")
-        click.echo()
+            # Align descriptions at column 36
+            pad = max(1, 36 - len(cmd))
+            lines.append(f"    {label(cmd)}{' ' * pad}{dim(desc)}")
+        lines.append("")
+
+    animate(lines)
 
 
 @main.group()
@@ -795,13 +813,21 @@ def commands_remove_pref(key: str) -> None:
 def commands_list() -> None:
     """Show all project commands, rules, and preferences (merged with workspace)."""
     from context_engine.project_commands import load_commands
-    from context_engine.cli_style import header, label, dim, value, DOT, ARROW
+    from context_engine.cli_style import header, label, dim, value, section, animate, DOT, ARROW, BULLET
+
     cmds = load_commands(str(Path.cwd()))
+    lines: list[str] = [""]
+
     if not cmds:
-        click.echo(f"  {DOT} {dim('No project configuration found.')}")
-        click.echo(f"    {dim('cce commands add-rule')} 'Never use down() in migrations'")
-        click.echo(f"    {dim('cce commands set-pref')} database PostgreSQL")
-        click.echo(f"    {dim('cce commands add')} before_push 'composer test'")
+        lines.append(section("Project Commands"))
+        lines.append("")
+        lines.append(f"    {DOT} {dim('No project configuration found.')}")
+        lines.append("")
+        lines.append(f"    {dim('Try:')}  {label('cce commands add-rule')} {dim(chr(39))}Never use down(){dim(chr(39))}")
+        lines.append(f"           {label('cce commands set-pref')} {dim('database PostgreSQL')}")
+        lines.append(f"           {label('cce commands add')} {dim('before_push')} {dim(chr(39))}composer test{dim(chr(39))}")
+        lines.append("")
+        animate(lines)
         return
 
     rules = cmds.get("rules", [])
@@ -810,23 +836,31 @@ def commands_list() -> None:
     custom = cmds.get("custom", {})
 
     if rules:
-        click.echo(f"  {header('Rules')}")
+        lines.append(section("Rules"))
         for r in rules:
-            click.echo(f"    {ARROW} {r}")
+            lines.append(f"    {ARROW} {r}")
+        lines.append("")
     if prefs:
-        click.echo(f"  {header('Preferences')}")
+        lines.append(section("Preferences"))
         for k, v in prefs.items():
-            click.echo(f"    {label(k)}: {value(str(v))}")
+            pad = max(1, 18 - len(k))
+            lines.append(f"    {label(k)}{' ' * pad}{value(str(v))}")
+        lines.append("")
     hook_labels = {"before_push": "Before push", "before_commit": "Before commit", "on_start": "On start"}
     for hook_key, hook_cmds in hooks.items():
         hook_name = hook_labels.get(hook_key, hook_key)
-        click.echo(f"  {header(hook_name)}")
+        lines.append(section(hook_name))
         for c in hook_cmds:
-            click.echo(f"    {ARROW} {dim('$')} {c}")
+            lines.append(f"    {BULLET} {dim('$')} {value(c)}")
+        lines.append("")
     if custom:
-        click.echo(f"  {header('Custom commands')}")
+        lines.append(section("Custom Commands"))
         for name, cmd in custom.items():
-            click.echo(f"    {label(name)} {ARROW} {dim('$')} {cmd}")
+            pad = max(1, 14 - len(name))
+            lines.append(f"    {label(name)}{' ' * pad}{ARROW} {dim('$')} {value(cmd)}")
+        lines.append("")
+
+    animate(lines)
 
 
 @main.command()
@@ -988,33 +1022,38 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
 def clear(ctx: click.Context, yes: bool) -> None:
     """Clear all index data for the current project (vectors, FTS, graph, manifest)."""
     from context_engine.storage.local_backend import LocalBackend
+    from context_engine.cli_style import warn, success, dim, value, section, animate, CHECK, DOT
 
     config = ctx.obj["config"]
     project_name = Path.cwd().name
     storage_dir = Path(config.storage_path) / project_name
 
-    from context_engine.cli_style import warn, success, dim, CHECK, DOT
-
     if not storage_dir.exists():
-        click.echo(f"  {DOT} {dim(f'No index data found for')} {project_name}")
+        animate(["", f"  {DOT} {dim('No index data found for')} {value(project_name)}", ""])
         return
 
     if not yes:
-        click.confirm(f"  {warn('Clear all index data for')} {project_name}? This cannot be undone.", abort=True)
+        click.echo("")
+        click.echo(section("Clear Index"))
+        click.echo("")
+        click.confirm(f"    {warn('Delete all index data for')} {value(project_name)}?", abort=True)
 
     backend = LocalBackend(base_path=str(storage_dir))
     asyncio.run(backend.clear())
 
-    # Reset manifest so next index starts fresh
     manifest_path = storage_dir / "manifest.json"
     if manifest_path.exists():
         manifest_path.write_text(json.dumps({"__schema_version": 2, "files": {}}))
 
-    # Reset stats
     stats_path = storage_dir / "stats.json"
     stats_path.write_text(json.dumps({"queries": 0, "raw_tokens": 0, "served_tokens": 0, "full_file_tokens": 0}))
 
-    click.echo(f"  {CHECK} {success('Cleared')} index data for {project_name}. Run {dim('cce index')} to re-index.")
+    animate([
+        "",
+        f"    {CHECK} {success('Cleared')} index data for {value(project_name)}",
+        f"    {dim('Run')} {click.style('cce index', fg='cyan')} {dim('to rebuild')}",
+        "",
+    ])
 
 
 @main.command()
@@ -1023,10 +1062,12 @@ def clear(ctx: click.Context, yes: bool) -> None:
 def prune(ctx: click.Context, dry_run: bool) -> None:
     """Remove index data for projects whose directories no longer exist."""
     import shutil
+    from context_engine.cli_style import success, warn, dim, value, section, animate, CHECK, CROSS, DOT
+
     config = ctx.obj["config"]
     storage_root = Path(config.storage_path)
     if not storage_root.exists():
-        click.echo("No indexed projects found.")
+        animate(["", f"  {DOT} {dim('No indexed projects found.')}", ""])
         return
 
     removed = []
@@ -1036,13 +1077,13 @@ def prune(ctx: click.Context, dry_run: bool) -> None:
             continue
         meta_path = project_dir / "meta.json"
         if not meta_path.exists():
-            kept.append((project_dir.name, "(no meta.json — skipping)"))
+            kept.append((project_dir.name, "(no meta.json)"))
             continue
         try:
             meta = json.loads(meta_path.read_text())
             source_path = Path(meta.get("project_dir", ""))
         except (json.JSONDecodeError, OSError):
-            kept.append((project_dir.name, "(unreadable meta.json — skipping)"))
+            kept.append((project_dir.name, "(unreadable meta.json)"))
             continue
 
         if source_path and source_path.exists():
@@ -1050,23 +1091,32 @@ def prune(ctx: click.Context, dry_run: bool) -> None:
         else:
             removed.append((project_dir.name, str(source_path), project_dir))
 
-    from context_engine.cli_style import success, warn, dim, CHECK, CROSS, DOT
+    lines: list[str] = []
+    lines.append("")
+    lines.append(section("Prune" + (" (dry run)" if dry_run else "")))
+    lines.append("")
 
     if not removed:
-        click.echo(f"  {CHECK} {success('Nothing to prune')} — all indexed projects still exist.")
+        lines.append(f"    {CHECK} {success('Nothing to prune')}  all indexed projects still exist")
+        lines.append("")
         for name, path in kept:
-            click.echo(f"    {CHECK} {name}  {dim(f'({path})')}")
+            lines.append(f"    {CHECK} {value(name)}  {dim(path)}")
+        lines.append("")
+        animate(lines)
         return
 
     for name, path, storage_dir in removed:
         if dry_run:
-            click.echo(f"    {DOT} {warn('[dry-run] would remove')}  {name}  {dim(f'(source: {path})')}")
+            lines.append(f"    {DOT} {warn('would remove')}  {value(name)}  {dim(path)}")
         else:
             shutil.rmtree(storage_dir)
-            click.echo(f"    {CROSS} {warn('removed')}  {name}  {dim(f'(source: {path})')}")
+            lines.append(f"    {CROSS} {warn('removed')}      {value(name)}  {dim(path)}")
 
     for name, path in kept:
-        click.echo(f"    {CHECK} {dim('kept')}  {name}  {dim(f'({path})')}")
+        lines.append(f"    {CHECK} {dim('kept')}          {value(name)}  {dim(path)}")
+
+    lines.append("")
+    animate(lines)
 
 
 def savings_shortcut() -> None:
@@ -1163,6 +1213,7 @@ def services(ctx: click.Context) -> None:
 def services_status() -> None:
     """Show status of all CCE services."""
     from context_engine.services import get_ollama_status, get_dashboard_status, get_mcp_status
+    from context_engine.cli_style import header, dim, section, animate, value, success, warn, BULLET, BULLET_OFF
 
     rows = [
         get_ollama_status(),
@@ -1170,16 +1221,21 @@ def services_status() -> None:
         get_mcp_status(),
     ]
 
-    from context_engine.cli_style import header, dim
-    click.echo(f"  {header('SERVICE'):<24}{header('STATUS'):<22}{header('DETAIL')}")
-    click.echo(f"  {dim('─' * 50)}")
+    lines: list[str] = []
+    lines.append("")
+    lines.append(section("Services"))
+    lines.append("")
 
     for row in rows:
         running = row["running"]
-        status_text = "running" if running else "stopped"
-        status_col = click.style(f"{status_text:<10}", fg="green" if running else "red")
-        detail = row.get("detail", "")
-        click.echo(f"  {row['name']:<12}{status_col}  {dim(detail)}")
+        bullet = BULLET if running else BULLET_OFF
+        status_text = success("running") if running else warn("stopped")
+        detail = dim(row.get("detail", ""))
+        name = value(f"{row['name']:<12}")
+        lines.append(f"    {bullet} {name} {status_text}  {detail}")
+
+    lines.append("")
+    animate(lines)
 
 
 @services.command(name="start")
