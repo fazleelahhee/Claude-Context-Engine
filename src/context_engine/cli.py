@@ -438,6 +438,72 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
             click.echo(f"  {DOT} {dim('Storage directory does not exist yet.')}")
 
 
+@main.command("list")
+def list_commands() -> None:
+    """Show all available CCE commands with usage examples."""
+    from context_engine.cli_style import header, dim, value, label, ARROW
+
+    sections = [
+        ("Setup", [
+            ("cce init", "Index project, install git hooks, write .mcp.json"),
+            ("cce index", "Re-index changed files"),
+            ("cce index --full", "Force full re-index of every file"),
+            ("cce index --path <file>", "Index one file or directory"),
+        ]),
+        ("Status & Savings", [
+            ("cce status", "Index health, config, embedding model, Ollama status"),
+            ("cce status --json", "Machine-readable output"),
+            ("cce savings", "Token savings report with visual grid"),
+            ("cce savings --all", "Savings across every indexed project"),
+            ("cce savings --json", "Machine-readable savings output"),
+        ]),
+        ("Index Management", [
+            ("cce clear", "Clear all index data (asks for confirmation)"),
+            ("cce clear --yes", "Skip confirmation"),
+            ("cce prune", "Remove data for deleted projects"),
+            ("cce prune --dry-run", "Preview without deleting"),
+        ]),
+        ("Services", [
+            ("cce services", "Show status of Ollama, dashboard, MCP"),
+            ("cce services start", "Start Ollama + dashboard"),
+            ("cce services start ollama", "Start only Ollama"),
+            ("cce services start dashboard", "Start dashboard on default port"),
+            ("cce services stop", "Stop everything CCE started"),
+        ]),
+        ("Dashboard", [
+            ("cce dashboard", "Open web dashboard in browser"),
+            ("cce dashboard --port 8080", "Custom port"),
+            ("cce dashboard --no-browser", "Server only, no browser open"),
+        ]),
+        ("Project Commands", [
+            ("cce commands list", "Show all rules, preferences, and hooks"),
+            ("cce commands add-rule '<rule>'", "Add a project rule"),
+            ("cce commands remove-rule '<rule>'", "Remove a rule"),
+            ("cce commands set-pref <key> <value>", "Set a preference"),
+            ("cce commands remove-pref <key>", "Remove a preference"),
+            ("cce commands add <hook> '<cmd>'", "Add to before_push, before_commit, or on_start"),
+            ("cce commands remove <hook> '<cmd>'", "Remove from a hook"),
+            ("cce commands add-custom <name> '<cmd>'", "Add a named custom command"),
+        ]),
+        ("MCP Server", [
+            ("cce serve", "Start MCP server (used by Claude Code)"),
+        ]),
+        ("Other", [
+            ("cce list", "This command"),
+            ("cce --version", "Show version"),
+            ("cce --help", "Show help"),
+        ]),
+    ]
+
+    click.echo()
+    for section_name, cmds in sections:
+        click.echo(f"  {header(section_name)}")
+        for cmd, desc in cmds:
+            click.echo(f"    {value(cmd)}")
+            click.echo(f"      {dim(desc)}")
+        click.echo()
+
+
 @main.group()
 def commands():
     """Manage project-specific commands (before_push, before_commit, etc.)."""
