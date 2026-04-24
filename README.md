@@ -404,7 +404,7 @@ cce commands add before_push 'composer test'
 cce commands add-custom deploy 'kubectl apply -f k8s/'
 ```
 
-Claude sees these at every session start and follows them automatically. Supports workspace-level configs for multi-project directories — see [Project Commands wiki](docs/wiki/Project-Commands.md) for details.
+Claude sees these at every session start and follows them automatically. Supports workspace-level configs for multi-project directories. See the [Project Commands wiki](https://github.com/fazleelahhee/Claude-Context-Engine/wiki/Project-Commands) for details.
 
 ### Resource profiles
 
