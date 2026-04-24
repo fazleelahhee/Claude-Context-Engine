@@ -7,12 +7,10 @@ Schema:
   chunks — regular table storing chunk metadata + content
   chunks_vec — vec0 virtual table storing embeddings for vector search
 """
-import asyncio
 import logging
 import os
 import sqlite3
 import struct
-from pathlib import Path
 from threading import RLock
 
 from context_engine.models import Chunk, ChunkType
@@ -33,11 +31,6 @@ def _serialize_vec(vec) -> bytes:
     """Pack a float vector into bytes for sqlite-vec."""
     v = _to_list(vec)
     return struct.pack(f"{len(v)}f", *v)
-
-
-def _deserialize_vec(data: bytes, dim: int) -> list[float]:
-    """Unpack bytes into a float list."""
-    return list(struct.unpack(f"{dim}f", data))
 
 
 class VectorStore:
@@ -94,6 +87,12 @@ class VectorStore:
         if self._dim == dim:
             return
         with self._lock:
+            if self._dim is not None and self._dim != dim:
+                log.warning(
+                    "Embedding dimension changed (%d -> %d), rebuilding vector table",
+                    self._dim, dim,
+                )
+                self._conn.execute("DROP TABLE IF EXISTS chunks_vec")
             self._conn.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec
                 USING vec0(embedding float[{dim}])
@@ -135,22 +134,25 @@ class VectorStore:
         dim = len(valid[0].embedding)
         self._ensure_vec_table(dim)
         with self._lock:
-            # Use a rowid mapping: hash chunk.id to an integer
+            cursor = self._conn.cursor()
             for chunk in valid:
                 row = self._chunk_to_row(chunk)
-                self._conn.execute(
-                    "INSERT OR REPLACE INTO chunks "
+                rowid = cursor.execute(
+                    "INSERT INTO chunks "
                     "(id, content, chunk_type, file_path, start_line, end_line, language) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(id) DO UPDATE SET "
+                    "content = excluded.content, "
+                    "chunk_type = excluded.chunk_type, "
+                    "file_path = excluded.file_path, "
+                    "start_line = excluded.start_line, "
+                    "end_line = excluded.end_line, "
+                    "language = excluded.language "
+                    "RETURNING rowid",
                     row,
-                )
-                # Get the rowid for this chunk
-                rowid = self._conn.execute(
-                    "SELECT rowid FROM chunks WHERE id = ?", (chunk.id,)
                 ).fetchone()[0]
-                # Delete old vector if exists, then insert new one
-                self._conn.execute("DELETE FROM chunks_vec WHERE rowid = ?", (rowid,))
-                self._conn.execute(
+                cursor.execute("DELETE FROM chunks_vec WHERE rowid = ?", (rowid,))
+                cursor.execute(
                     "INSERT INTO chunks_vec(rowid, embedding) VALUES (?, ?)",
                     (rowid, _serialize_vec(chunk.embedding)),
                 )
@@ -170,6 +172,9 @@ class VectorStore:
                 query_bytes = _serialize_vec(embedding_list)
                 # Vector search via sqlite-vec
                 # sqlite-vec requires k=? in WHERE, not LIMIT
+                unsupported = set(filters or {}) - {"file_path"}
+                if unsupported:
+                    log.warning("Unsupported filter keys ignored: %s", unsupported)
                 if filters and "file_path" in filters:
                     fp = filters["file_path"]
                     # First get matching rowids from vec search, then filter
@@ -204,15 +209,11 @@ class VectorStore:
 
     async def delete_by_file(self, file_path: str) -> None:
         with self._lock:
-            # Get rowids for chunks in this file
-            rowids = self._conn.execute(
-                "SELECT rowid FROM chunks WHERE file_path = ?", (file_path,)
-            ).fetchall()
-            if rowids:
-                placeholders = ",".join("?" for _ in rowids)
-                ids = [r[0] for r in rowids]
+            if self._dim is not None:
                 self._conn.execute(
-                    f"DELETE FROM chunks_vec WHERE rowid IN ({placeholders})", ids
+                    "DELETE FROM chunks_vec "
+                    "WHERE rowid IN (SELECT rowid FROM chunks WHERE file_path = ?)",
+                    (file_path,),
                 )
             self._conn.execute("DELETE FROM chunks WHERE file_path = ?", (file_path,))
             self._conn.commit()
