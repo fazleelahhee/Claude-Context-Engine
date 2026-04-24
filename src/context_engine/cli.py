@@ -694,7 +694,19 @@ def list_commands() -> None:
             ("cce commands remove <hook> '<cmd>'", "Remove from a hook"),
             ("cce commands add-custom <n> '<c>'", "Add a named custom command"),
         ]),
-        ("MCP Server", [
+        ("Search", [
+            ("cce search '<query>'", "Run a test query and update savings stats"),
+            ("cce search '<query>' --top-k 10", "Return more results"),
+        ]),
+        ("Shortcuts", [
+            ("cce start", "Start all services (Ollama + dashboard)"),
+            ("cce stop", "Stop all services"),
+            ("cce start ollama", "Start only Ollama"),
+            ("cce stop dashboard", "Stop only dashboard"),
+        ]),
+        ("Lifecycle", [
+            ("cce init", "Install CCE in project"),
+            ("cce uninstall", "Remove CCE from project (hooks, MCP, CLAUDE.md)"),
             ("cce serve", "Start MCP server (used by Claude Code)"),
         ]),
         ("Other", [
@@ -1115,6 +1127,215 @@ def prune(ctx: click.Context, dry_run: bool) -> None:
     for name, path in kept:
         lines.append(f"    {CHECK} {dim('kept')}          {value(name)}  {dim(path)}")
 
+    lines.append("")
+    animate(lines)
+
+
+@main.command()
+@click.argument("query")
+@click.option("--top-k", default=5, show_default=True, help="Number of results")
+@click.pass_context
+def search(ctx: click.Context, query: str, top_k: int) -> None:
+    """Run a test search query and show results (also updates savings stats)."""
+    from context_engine.cli_style import section, animate, value, dim, label, success, CHECK, DOT
+
+    config = ctx.obj["config"]
+    project_dir = str(Path.cwd())
+    project_name = Path.cwd().name
+
+    async def _search():
+        from context_engine.storage.local_backend import LocalBackend
+        from context_engine.indexer.embedder import Embedder
+        from context_engine.retrieval.retriever import HybridRetriever
+
+        storage_dir = Path(config.storage_path) / project_name
+        if not (storage_dir / "vectors").exists():
+            animate(["", f"  {DOT} {dim('Not indexed yet. Run:')} {label('cce init')}", ""])
+            return
+
+        backend = LocalBackend(base_path=str(storage_dir))
+        embedder = Embedder(model_name=config.embedding_model)
+        retriever = HybridRetriever(backend=backend, embedder=embedder)
+        results = await retriever.retrieve(query, top_k=top_k)
+
+        lines: list[str] = []
+        lines.append("")
+        lines.append(section(f"Search · {query}"))
+        lines.append("")
+
+        if not results:
+            lines.append(f"    {DOT} {dim('No results found')}")
+        else:
+            # Compute tokens
+            raw_tokens = 0
+            served_tokens = 0
+            seen_files: set[str] = set()
+            for r in results:
+                chunk_tokens = max(1, len(r.content) // 4)
+                raw_tokens += chunk_tokens
+                served_tokens += chunk_tokens
+                seen_files.add(r.file_path)
+
+            # Estimate full file tokens
+            full_file_tokens = 0
+            for fp in seen_files:
+                full_path = Path(project_dir) / fp
+                if full_path.exists():
+                    try:
+                        full_file_tokens += max(1, len(full_path.read_text(errors="ignore")) // 4)
+                    except OSError:
+                        pass
+
+            for i, r in enumerate(results, 1):
+                conf = r.metadata.get("confidence", "")
+                conf_str = f"  {dim(f'({conf:.2f})')}" if isinstance(conf, (int, float)) else ""
+                lines.append(f"    {label(str(i))}. {value(r.file_path)}:{r.start_line}-{r.end_line}{conf_str}")
+                # Show first line of content
+                first_line = r.content.strip().split("\n")[0][:80]
+                lines.append(f"       {dim(first_line)}")
+
+            lines.append("")
+            lines.append(f"    {CHECK} {success(f'{len(results)} results')}  {dim(f'{served_tokens} tokens served vs {full_file_tokens} full file tokens')}")
+
+            # Update stats
+            stats_path = storage_dir / "stats.json"
+            try:
+                stats = json.loads(stats_path.read_text()) if stats_path.exists() else {}
+            except (json.JSONDecodeError, OSError):
+                stats = {}
+            stats["queries"] = stats.get("queries", 0) + 1
+            stats["raw_tokens"] = stats.get("raw_tokens", 0) + raw_tokens
+            stats["served_tokens"] = stats.get("served_tokens", 0) + served_tokens
+            stats.setdefault("full_file_tokens", 0)
+            stats["full_file_tokens"] = max(stats["full_file_tokens"], full_file_tokens)
+            stats_path.write_text(json.dumps(stats))
+
+        lines.append("")
+        animate(lines)
+
+    asyncio.run(_search())
+
+
+@main.command()
+def uninstall() -> None:
+    """Remove CCE from the current project (hooks, .mcp.json entry, CLAUDE.md block)."""
+    from context_engine.cli_style import section, animate, value, dim, success, warn, CHECK, CROSS, DOT
+
+    project_dir = Path.cwd()
+    project_name = project_dir.name
+    lines: list[str] = []
+    lines.append("")
+    lines.append(section(f"Uninstall · {project_name}"))
+    lines.append("")
+
+    # Remove git hooks
+    hooks_dir = project_dir / ".git" / "hooks"
+    removed_hooks = 0
+    if hooks_dir.exists():
+        for hook_name in ["post-commit", "pre-push", "post-merge"]:
+            hook_file = hooks_dir / hook_name
+            if hook_file.exists():
+                content = hook_file.read_text()
+                if "cce" in content.lower() or "context-engine" in content.lower():
+                    hook_file.unlink()
+                    removed_hooks += 1
+    if removed_hooks:
+        lines.append(f"    {CROSS} {warn('Removed')} {removed_hooks} git hooks")
+    else:
+        lines.append(f"    {DOT} {dim('No CCE git hooks found')}")
+
+    # Remove from .mcp.json
+    mcp_path = project_dir / ".mcp.json"
+    if mcp_path.exists():
+        try:
+            mcp_data = json.loads(mcp_path.read_text())
+            servers = mcp_data.get("mcpServers", {})
+            if "context-engine" in servers:
+                del servers["context-engine"]
+                mcp_path.write_text(json.dumps(mcp_data, indent=2) + "\n")
+                lines.append(f"    {CROSS} {warn('Removed')} context-engine from .mcp.json")
+            else:
+                lines.append(f"    {DOT} {dim('No CCE entry in .mcp.json')}")
+        except (json.JSONDecodeError, OSError):
+            lines.append(f"    {DOT} {dim('Could not parse .mcp.json')}")
+    else:
+        lines.append(f"    {DOT} {dim('No .mcp.json found')}")
+
+    # Remove CCE block from CLAUDE.md
+    claude_md = project_dir / "CLAUDE.md"
+    if claude_md.exists():
+        content = claude_md.read_text()
+        marker = "<!-- CCE:BEGIN -->"
+        end_marker = "<!-- CCE:END -->"
+        if marker in content:
+            start = content.index(marker)
+            end = content.index(end_marker) + len(end_marker) if end_marker in content else len(content)
+            new_content = (content[:start] + content[end:]).strip()
+            if new_content:
+                claude_md.write_text(new_content + "\n")
+            else:
+                claude_md.unlink()
+            lines.append(f"    {CROSS} {warn('Removed')} CCE block from CLAUDE.md")
+        elif "context_search" in content or "context-engine" in content.lower():
+            lines.append(f"    {DOT} {warn('CLAUDE.md has CCE references but no markers. Edit manually.')}")
+        else:
+            lines.append(f"    {DOT} {dim('No CCE block in CLAUDE.md')}")
+    else:
+        lines.append(f"    {DOT} {dim('No CLAUDE.md found')}")
+
+    # Remove .cce directory
+    cce_dir = project_dir / ".cce"
+    if cce_dir.exists():
+        import shutil
+        shutil.rmtree(cce_dir)
+        lines.append(f"    {CROSS} {warn('Removed')} .cce/ directory")
+    else:
+        lines.append(f"    {DOT} {dim('No .cce/ directory')}")
+
+    lines.append("")
+    lines.append(f"    {dim('Index data in ~/.claude-context-engine is preserved.')}")
+    lines.append(f"    {dim('Run')} {click.style('cce clear', fg='cyan')} {dim('to remove index data too.')}")
+    lines.append("")
+    animate(lines)
+
+
+@main.command()
+@click.argument("service", required=False, type=click.Choice(["ollama", "dashboard", "all"]), default="all")
+@click.option("--port", default=8080, show_default=True, help="Dashboard port")
+def start(service: str, port: int) -> None:
+    """Start CCE services (shortcut for cce services start)."""
+    from context_engine.services import start_ollama, start_dashboard
+    from context_engine.cli_style import section, animate, CHECK, DOT
+
+    lines = ["", section("Starting Services")]
+    targets = ["ollama", "dashboard"] if service == "all" else [service]
+    for target in targets:
+        if target == "ollama":
+            ok, msg = start_ollama()
+        else:
+            ok, msg = start_dashboard(port=port)
+        prefix = CHECK if ok else DOT
+        lines.append(f"    {prefix} {msg}")
+    lines.append("")
+    animate(lines)
+
+
+@main.command()
+@click.argument("service", required=False, type=click.Choice(["ollama", "dashboard", "all"]), default="all")
+def stop(service: str) -> None:
+    """Stop CCE services (shortcut for cce services stop)."""
+    from context_engine.services import stop_ollama, stop_dashboard
+    from context_engine.cli_style import section, animate, CHECK, DOT
+
+    lines = ["", section("Stopping Services")]
+    targets = ["ollama", "dashboard"] if service == "all" else [service]
+    for target in targets:
+        if target == "ollama":
+            ok, msg = stop_ollama()
+        else:
+            ok, msg = stop_dashboard()
+        prefix = CHECK if ok else DOT
+        lines.append(f"    {prefix} {msg}")
     lines.append("")
     animate(lines)
 
