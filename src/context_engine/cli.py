@@ -851,7 +851,10 @@ async def _run_serve(config) -> None:
 
     async def _on_file_change(file_path: str):
         """Queue the file for re-indexing (non-blocking)."""
-        rel = str(Path(file_path).relative_to(project_dir))
+        try:
+            rel = str(Path(file_path).relative_to(project_dir))
+        except ValueError:
+            return
         await _reindex_queue.put(rel)
 
     async def _reindex_worker():
@@ -862,7 +865,7 @@ async def _run_serve(config) -> None:
                 await run_indexing(config, project_dir, target_path=rel)
                 _log.debug("Re-indexed: %s", rel)
             except Exception as exc:
-                _log.debug("Watch re-index failed for %s: %s", rel, exc)
+                _log.warning("Watch re-index failed for %s: %s", rel, exc)
             _reindex_queue.task_done()
 
     watcher = FileWatcher(
@@ -884,3 +887,7 @@ async def _run_serve(config) -> None:
     finally:
         watcher.stop()
         worker_task.cancel()
+        try:
+            await worker_task
+        except asyncio.CancelledError:
+            pass
