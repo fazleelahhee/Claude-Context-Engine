@@ -985,6 +985,28 @@ async def _run_index(
         "".join(detail_parts)
     )
 
+    # Update full_file_tokens baseline so cce savings shows codebase size
+    project_name = Path(project_dir).name
+    stats_path = Path(config.storage_path) / project_name / "stats.json"
+    try:
+        stats = json.loads(stats_path.read_text()) if stats_path.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        stats = {}
+    total_tokens = 0
+    project_root = Path(project_dir)
+    from context_engine.storage.local_backend import LocalBackend
+    backend = LocalBackend(base_path=str(Path(config.storage_path) / project_name))
+    for rel_path in backend._vector_store.file_chunk_counts():
+        fp = project_root / rel_path
+        if fp.exists():
+            try:
+                total_tokens += len(fp.read_text(errors="ignore")) // 4
+            except OSError:
+                pass
+    stats["full_file_tokens"] = total_tokens
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
+    stats_path.write_text(json.dumps(stats))
+
 
 async def _run_serve(config) -> None:
     """Start MCP server with live file watcher."""
