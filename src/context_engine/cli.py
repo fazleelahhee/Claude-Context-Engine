@@ -101,14 +101,8 @@ Code blocks, file paths, commands, and error messages are always written in full
 
 def _resolve_cce_cmd() -> str:
     """Find the globally installed cce binary path."""
-    import shutil
-    for candidate in [
-        Path.home() / ".local" / "bin" / "cce",
-        Path("/usr/local/bin/cce"),
-    ]:
-        if candidate.exists():
-            return str(candidate)
-    return shutil.which("cce") or "cce"
+    from context_engine.utils import resolve_cce_binary
+    return resolve_cce_binary()
 
 
 def _has_cce_hook(hook_list: list, marker: str) -> bool:
@@ -149,7 +143,68 @@ def _ensure_session_hook(project_dir: Path) -> None:
 
     if changed:
         settings_path.write_text(json.dumps(data, indent=2) + "\n")
-        click.echo("SessionStart hook installed for CCE status.")
+        _ok("SessionStart hook installed for CCE status")
+
+
+from context_engine.cli_style import success, warn as _warn_style, dim as _dim_style, value, header, label, CHECK, CROSS, DOT, ARROW
+
+
+def _ok(msg: str) -> None:
+    """Print a green ✓ success line."""
+    click.echo(f"  {CHECK} {msg}")
+
+
+def _warn(msg: str) -> None:
+    """Print a yellow ! warning line."""
+    click.echo(f"  {DOT} {_warn_style(msg)}")
+
+
+def _dim(msg: str) -> str:
+    return _dim_style(msg)
+
+
+def _preflight_check(config) -> None:
+    """Verify all required components are ready before indexing starts.
+
+    Downloads the embedding model on first use with a clear progress message,
+    and reports Ollama status so users know what compression level they will get.
+    """
+    # --- Embedding model ---
+    click.echo(_dim("  Checking embedding model") + "...", nl=False)
+    try:
+        from fastembed import TextEmbedding
+        model_name = getattr(config, "embedding_model", "BAAI/bge-small-en-v1.5")
+        if "/" not in model_name:
+            model_name = f"sentence-transformers/{model_name}"
+        click.echo(_dim(" downloading if needed (60 MB, first time only)") + "...", nl=False)
+        TextEmbedding(model_name)
+        click.echo(" " + click.style("ready", fg="green"))
+    except Exception as exc:
+        click.echo("")
+        _warn(f"Could not load embedding model: {exc}")
+        _warn("Indexing will attempt to continue but may fail.")
+
+    # --- Ollama (optional) ---
+    try:
+        import httpx
+        resp = httpx.get("http://localhost:11434/api/tags", timeout=2.0)
+        if resp.status_code == 200:
+            click.echo(
+                "  Ollama " + click.style("detected", fg="green") +
+                " — LLM summarization enabled."
+            )
+        else:
+            click.echo(
+                "  Ollama " + click.style("not running", fg="yellow") +
+                " — using truncation compression."
+            )
+            click.echo(_dim("  Tip: ollama pull phi3:mini for LLM summarization"))
+    except Exception:
+        click.echo(
+            "  Ollama " + click.style("not running", fg="yellow") +
+            " — using truncation compression."
+        )
+        click.echo(_dim("  Tip: ollama pull phi3:mini for LLM summarization"))
 
 
 def _ensure_claude_md(project_dir: Path) -> None:
@@ -159,13 +214,12 @@ def _ensure_claude_md(project_dir: Path) -> None:
         existing = claude_md.read_text()
         if _CCE_CLAUDE_MD_MARKER in existing:
             return  # already has CCE block
-        # Append to existing file
         new_content = existing.rstrip() + "\n\n" + _CCE_CLAUDE_MD_BLOCK
         claude_md.write_text(new_content)
-        click.echo("CCE instructions appended to existing CLAUDE.md.")
+        _ok("CLAUDE.md updated with CCE instructions")
     else:
         claude_md.write_text(_CCE_CLAUDE_MD_BLOCK)
-        click.echo("CLAUDE.md created with CCE instructions.")
+        _ok("CLAUDE.md created with CCE instructions")
 
 
 @click.group()
@@ -185,59 +239,79 @@ def main(ctx: click.Context, verbose: bool) -> None:
 def init(ctx: click.Context) -> None:
     """Initialize context engine and connect it to Claude Code."""
     from context_engine.indexer.git_hooks import install_hooks
+    from context_engine.project_commands import ensure_gitignore
     config = ctx.obj["config"]
     project_dir = Path.cwd()
 
-    installed = install_hooks(str(project_dir))
-    if installed:
-        click.echo(f"Git hooks installed: {len(installed)} hooks")
+    click.echo("")
+    click.echo(
+        click.style("  Claude Context Engine", fg="cyan", bold=True) +
+        click.style(f"  ·  {project_dir.name}", fg="white", bold=True)
+    )
+    click.echo(_dim("  " + "─" * 44))
+    click.echo("")
 
+    # 1. Pre-flight: verify embedding model + report Ollama status
+    _preflight_check(config)
+    click.echo("")
+
+    # 2. Storage
     project_name = project_dir.name
     storage_dir = Path(config.storage_path) / project_name
     storage_dir.mkdir(parents=True, exist_ok=True)
-    click.echo(f"Storage directory: {storage_dir}")
-
-    # Persist the source path so `cce prune` can detect deleted projects.
     meta_path = storage_dir / "meta.json"
     meta_path.write_text(json.dumps({"project_dir": str(project_dir.resolve())}))
 
+    # 3. Git hooks
+    is_git_repo = (project_dir / ".git").exists()
+    if is_git_repo:
+        installed = install_hooks(str(project_dir))
+        if installed:
+            _ok(f"Git hooks installed  " + _dim(f"({len(installed)} hooks, auto-updates on commit)"))
+    else:
+        _warn("Not a git repository — git hook skipped")
+        click.echo(_dim("    Run `cce index` manually after making changes."))
+
+    # 4. MCP config
     configured = _configure_mcp(project_dir)
     if configured:
-        click.echo("MCP server registered in .mcp.json — restart Claude Code to activate.")
+        _ok("MCP server registered in " + click.style(".mcp.json", fg="cyan"))
     else:
-        click.echo("MCP server already in .mcp.json.")
+        _ok("MCP server already configured in " + click.style(".mcp.json", fg="cyan"))
 
+    # 5. CLAUDE.md + session hook
     _ensure_claude_md(project_dir)
     _ensure_session_hook(project_dir)
 
-    # Add .cce/ to .gitignore
-    from context_engine.project_commands import ensure_gitignore
+    # 6. .gitignore — add CCE per-machine entries
     ensure_gitignore(str(project_dir))
+    _ok(".gitignore updated with CCE entries")
 
-    is_git_repo = (project_dir / ".git").exists()
-    if not is_git_repo:
-        click.echo(
-            "Note: not a git repository — git history will not be indexed.\n"
-            "To enable git indexing, run: git init && git add . && git commit -m 'init'"
-        )
-
-    click.echo("Running initial index...")
+    click.echo("")
+    click.echo(
+        "  " + click.style("Indexing project", fg="cyan", bold=True) + "..."
+    )
     asyncio.run(_run_index(config, str(project_dir), full=True))
-    click.echo("Done. Restart Claude Code if this is your first time running init.")
+    click.echo("")
+    click.echo(
+        click.style("  Done!", fg="green", bold=True) +
+        click.style("  Restart Claude Code to activate CCE.", fg="white")
+    )
+    click.echo("")
 
 
 @main.command()
-@click.option("--full", is_flag=True, help="Force full re-index")
-@click.option("--path", type=str, default=None, help="Index specific file/directory")
-@click.option("--changed-only", is_flag=True, help="Only index changed files")
+@click.option("--full", is_flag=True, help="Force full re-index of every file")
+@click.option("--path", type=str, default=None, help="Index only this file or directory")
 @click.pass_context
-def index(ctx: click.Context, full: bool, path: str | None, changed_only: bool) -> None:
+def index(ctx: click.Context, full: bool, path: str | None) -> None:
     """Index or re-index project files."""
     config = ctx.obj["config"]
     verbose = ctx.obj["verbose"]
-    project_dir = path or str(Path.cwd())
-    asyncio.run(_run_index(config, project_dir, full=full, verbose=verbose))
-    click.echo("Indexing complete.")
+    project_dir = str(Path.cwd())
+    from context_engine.cli_style import header
+    click.echo("  " + header("Indexing") + "...")
+    asyncio.run(_run_index(config, project_dir, full=full, target_path=path, verbose=verbose))
 
 
 @main.command()
@@ -293,9 +367,11 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
         click.echo(_json.dumps(out, indent=2))
         return
 
-    click.echo(f"Storage path: {config.storage_path}")
-    click.echo(f"Compression level: {config.compression_level}")
-    click.echo(f"Resource profile: {config.detect_resource_profile()}")
+    from context_engine.cli_style import header, label, value, dim, success, warn, CHECK, DOT
+
+    click.echo(f"  {label('Storage path')}     {value(config.storage_path)}")
+    click.echo(f"  {label('Compression')}      {value(config.compression_level)}")
+    click.echo(f"  {label('Resource profile')} {value(config.detect_resource_profile())}")
 
     # Token savings
     project_name = Path.cwd().name
@@ -304,29 +380,39 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
         try:
             stats = _json.loads(stats_path.read_text())
             raw = stats.get("raw_tokens", 0)
+            full = stats.get("full_file_tokens", 0)
             served = stats.get("served_tokens", 0)
             queries = stats.get("queries", 0)
-            saved = raw - served
-            pct = int(saved / raw * 100) if raw > 0 else 0
-            click.echo(f"\nToken savings ({queries} queries):")
-            click.echo(f"  Raw tokens:    {raw:,}")
-            click.echo(f"  Served tokens: {served:,}")
-            click.echo(f"  Saved:         {saved:,} ({pct}%)")
+            baseline = max(full, raw) if full > 0 else raw
+            saved = max(0, baseline - served)
+            pct = int(saved / baseline * 100) if baseline > 0 else 0
+            click.echo()
+            click.echo(f"  {header('Token savings')} {dim(f'({queries} queries)')}")
+            click.echo(f"    Full codebase: {value(f'{baseline:,}')}")
+            click.echo(f"    Served tokens: {value(f'{served:,}')}")
+            click.echo(f"    {CHECK} Saved:         {success(f'{saved:,}')} {dim(f'({pct}%)')}")
         except (KeyError, _json.JSONDecodeError):
             pass
     else:
-        click.echo("\nToken savings: no usage recorded yet (run context_search via MCP)")
+        click.echo()
+        storage_dir = Path(config.storage_path) / Path.cwd().name
+        vectors_dir = storage_dir / "vectors"
+        if not vectors_dir.exists():
+            click.echo(f"  {DOT} {dim('Project not indexed yet — run: cce init')}")
+        else:
+            click.echo(f"  {DOT} {dim('No usage recorded yet — run context_search via MCP')}")
 
     if verbose:
         storage_path = Path(config.storage_path)
         if storage_path.exists():
             projects = [d for d in storage_path.iterdir() if d.is_dir()]
-            click.echo(f"\nProjects indexed: {len(projects)}")
+            click.echo()
+            click.echo(f"  {header('Projects indexed')} {value(str(len(projects)))}")
             for project in projects:
                 chunks = list(project.glob("**/*.json"))
-                click.echo(f"  {project.name}: {len(chunks)} stored files")
+                click.echo(f"    {dim('·')} {project.name}: {chunks} stored files")
         else:
-            click.echo("Storage directory does not exist yet.")
+            click.echo(f"  {DOT} {dim('Storage directory does not exist yet.')}")
 
 
 @main.group()
@@ -340,12 +426,13 @@ def commands():
 def commands_add(hook: str, command: str) -> None:
     """Add a command to a hook. Example: cce commands add before_push 'composer test'"""
     from context_engine.project_commands import load_project_only, add_command
+    from context_engine.cli_style import success, warn, CHECK, DOT
     existing = load_project_only(str(Path.cwd())).get(hook, [])
     if command in existing:
-        click.echo(f"Already exists in {hook}: {command}")
+        click.echo(f"  {DOT} {warn('Already exists')} in {hook}: {command}")
         return
     add_command(str(Path.cwd()), hook, command)
-    click.echo(f"Added to {hook}: {command}")
+    click.echo(f"  {CHECK} {success('Added')} to {hook}: {command}")
 
 
 @commands.command("add-custom")
@@ -354,8 +441,9 @@ def commands_add(hook: str, command: str) -> None:
 def commands_add_custom(name: str, command: str) -> None:
     """Add a named custom command. Example: cce commands add-custom deploy 'kubectl apply -f k8s/'"""
     from context_engine.project_commands import add_custom_command
+    from context_engine.cli_style import success, CHECK
     add_custom_command(str(Path.cwd()), name, command)
-    click.echo(f"Added custom command '{name}': {command}")
+    click.echo(f"  {CHECK} {success('Added')} custom command '{name}': {command}")
 
 
 @commands.command("remove")
@@ -364,10 +452,11 @@ def commands_add_custom(name: str, command: str) -> None:
 def commands_remove(hook: str, command: str) -> None:
     """Remove a command from a hook."""
     from context_engine.project_commands import remove_command
+    from context_engine.cli_style import success, warn, CHECK, DOT
     if remove_command(str(Path.cwd()), hook, command):
-        click.echo(f"Removed from {hook}: {command}")
+        click.echo(f"  {CHECK} {success('Removed')} from {hook}: {command}")
     else:
-        click.echo(f"Command not found in {hook}: {command}")
+        click.echo(f"  {DOT} {warn('Not found')} in {hook}: {command}")
 
 
 @commands.command("add-rule")
@@ -376,11 +465,12 @@ def commands_add_rule(rule: str) -> None:
     """Add a project rule. Example: cce commands add-rule 'Never use down() in migrations'"""
     from context_engine.project_commands import load_project_only, add_rule
     existing = load_project_only(str(Path.cwd())).get("rules", [])
+    from context_engine.cli_style import success, warn, CHECK, DOT
     if rule in existing:
-        click.echo(f"Rule already exists: {rule}")
+        click.echo(f"  {DOT} {warn('Already exists')}: {rule}")
         return
     add_rule(str(Path.cwd()), rule)
-    click.echo(f"Rule added: {rule}")
+    click.echo(f"  {CHECK} {success('Rule added')}: {rule}")
 
 
 @commands.command("remove-rule")
@@ -388,10 +478,11 @@ def commands_add_rule(rule: str) -> None:
 def commands_remove_rule(rule: str) -> None:
     """Remove a project rule."""
     from context_engine.project_commands import remove_rule
+    from context_engine.cli_style import success, warn, CHECK, DOT
     if remove_rule(str(Path.cwd()), rule):
-        click.echo(f"Rule removed: {rule}")
+        click.echo(f"  {CHECK} {success('Rule removed')}: {rule}")
     else:
-        click.echo(f"Rule not found: {rule}")
+        click.echo(f"  {DOT} {warn('Not found')}: {rule}")
 
 
 @commands.command("set-pref")
@@ -400,8 +491,9 @@ def commands_remove_rule(rule: str) -> None:
 def commands_set_pref(key: str, value: str) -> None:
     """Set a preference. Example: cce commands set-pref database PostgreSQL"""
     from context_engine.project_commands import set_preference
+    from context_engine.cli_style import success, CHECK
     set_preference(str(Path.cwd()), key, value)
-    click.echo(f"Preference set: {key} = {value}")
+    click.echo(f"  {CHECK} {success('Preference set')}: {key} = {value}")
 
 
 @commands.command("remove-pref")
@@ -409,25 +501,49 @@ def commands_set_pref(key: str, value: str) -> None:
 def commands_remove_pref(key: str) -> None:
     """Remove a preference."""
     from context_engine.project_commands import remove_preference
+    from context_engine.cli_style import success, warn, CHECK, DOT
     if remove_preference(str(Path.cwd()), key):
-        click.echo(f"Preference removed: {key}")
+        click.echo(f"  {CHECK} {success('Preference removed')}: {key}")
     else:
-        click.echo(f"Preference not found: {key}")
+        click.echo(f"  {DOT} {warn('Not found')}: {key}")
 
 
 @commands.command("list")
 def commands_list() -> None:
     """Show all project commands, rules, and preferences (merged with workspace)."""
     from context_engine.project_commands import load_commands
+    from context_engine.cli_style import header, label, dim, value, DOT, ARROW
     cmds = load_commands(str(Path.cwd()))
     if not cmds:
-        click.echo("No project configuration found.")
-        click.echo("  cce commands add-rule 'Never use down() in migrations'")
-        click.echo("  cce commands set-pref database PostgreSQL")
-        click.echo("  cce commands add before_push 'composer test'")
+        click.echo(f"  {DOT} {dim('No project configuration found.')}")
+        click.echo(f"    {dim('cce commands add-rule')} 'Never use down() in migrations'")
+        click.echo(f"    {dim('cce commands set-pref')} database PostgreSQL")
+        click.echo(f"    {dim('cce commands add')} before_push 'composer test'")
         return
-    import yaml
-    click.echo(yaml.dump(cmds, default_flow_style=False, sort_keys=False).rstrip())
+
+    rules = cmds.get("rules", [])
+    prefs = cmds.get("preferences", {})
+    hooks = {k: v for k, v in cmds.items() if k not in ("rules", "preferences", "custom") and isinstance(v, list)}
+    custom = cmds.get("custom", {})
+
+    if rules:
+        click.echo(f"  {header('Rules')}")
+        for r in rules:
+            click.echo(f"    {ARROW} {r}")
+    if prefs:
+        click.echo(f"  {header('Preferences')}")
+        for k, v in prefs.items():
+            click.echo(f"    {label(k)}: {value(str(v))}")
+    hook_labels = {"before_push": "Before push", "before_commit": "Before commit", "on_start": "On start"}
+    for hook_key, hook_cmds in hooks.items():
+        hook_name = hook_labels.get(hook_key, hook_key)
+        click.echo(f"  {header(hook_name)}")
+        for c in hook_cmds:
+            click.echo(f"    {ARROW} {dim('$')} {c}")
+    if custom:
+        click.echo(f"  {header('Custom commands')}")
+        for name, cmd in custom.items():
+            click.echo(f"    {label(name)} {ARROW} {dim('$')} {cmd}")
 
 
 @main.command()
@@ -455,8 +571,8 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         except (KeyError, _json.JSONDecodeError):
             return None
 
-    _USED = "⛁"
-    _FREE = "⛶"
+    from context_engine.cli_style import header, label, value, dim, success, bold
+
     _COLS = 10
 
     def _fmt_k(n: int) -> str:
@@ -467,10 +583,12 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         filled = max(0, min(total, round(used_pct * total)))
         result = []
         for r in range(rows):
-            cells = [
-                _USED if r * _COLS + c < filled else _FREE
-                for c in range(_COLS)
-            ]
+            cells = []
+            for c in range(_COLS):
+                if r * _COLS + c < filled:
+                    cells.append(click.style("█", fg="cyan"))
+                else:
+                    cells.append(click.style("░", dim=True))
             result.append("     " + " ".join(cells))
         return result
 
@@ -486,12 +604,12 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         used_pct_int = int(used_pct * 100)
 
         labels: list[str] = [
-            f"  {name} · {queries:,} queries",
-            f"  {_fmt_k(served)}/{_fmt_k(baseline)} tokens used ({used_pct_int}%)",
+            f"  {bold(name)} {dim('·')} {value(f'{queries:,}')} {dim('queries')}",
+            f"  {value(_fmt_k(served))}{dim('/')}{value(_fmt_k(baseline))} {dim('tokens used')} {dim(f'({used_pct_int}%)')}",
             "",
-            "  Token savings",
-            f"  {_USED} With CCE:    {served:>10,} tokens  ({used_pct_int}%)",
-            f"  {_FREE} Tokens saved:{saved:>10,} tokens  ({saved_pct}%)",
+            f"  {header('Token savings')}",
+            f"  {label('With CCE:')}    {value(f'{served:>10,}')} {dim('tokens')}  {dim(f'({used_pct_int}%)')}",
+            f"  {success('Saved:')}       {success(f'{saved:>10,}')} {dim('tokens')}  {success(f'({saved_pct}%)')}",
         ]
 
         grid = _grid_rows(used_pct, rows=len(labels))
@@ -545,8 +663,8 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
                     "raw_tokens": 0, "served_tokens": 0, "queries": 0,
                 })))
         else:
-            click.echo("No usage recorded yet.")
-            click.echo("Run context_search queries via MCP to start tracking savings.")
+            click.echo(f"  {dim('No usage recorded yet.')}")
+            click.echo(f"  {dim('Run context_search queries via MCP to start tracking savings.')}")
         return
 
     if as_json:
@@ -572,8 +690,8 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         total_saved = total_raw - total_served
         total_pct = int(total_saved / total_raw * 100) if total_raw > 0 else 0
         click.echo()
-        click.echo(f"  Total across {len(reports)} projects · {total_queries:,} queries")
-        click.echo(f"  {_FREE} Saved: {total_saved:,} tokens ({total_pct}%)")
+        click.echo(f"  {bold('Total')} {dim('across')} {value(str(len(reports)))} {dim('projects ·')} {value(f'{total_queries:,}')} {dim('queries')}")
+        click.echo(f"  {success(f'Saved: {total_saved:,} tokens ({total_pct}%)')}")
 
     click.echo()
 
@@ -589,12 +707,14 @@ def clear(ctx: click.Context, yes: bool) -> None:
     project_name = Path.cwd().name
     storage_dir = Path(config.storage_path) / project_name
 
+    from context_engine.cli_style import warn, success, dim, CHECK, DOT
+
     if not storage_dir.exists():
-        click.echo(f"No index data found for '{project_name}'.")
+        click.echo(f"  {DOT} {dim(f'No index data found for')} {project_name}")
         return
 
     if not yes:
-        click.confirm(f"Clear all index data for '{project_name}'? This cannot be undone.", abort=True)
+        click.confirm(f"  {warn('Clear all index data for')} {project_name}? This cannot be undone.", abort=True)
 
     backend = LocalBackend(base_path=str(storage_dir))
     asyncio.run(backend.clear())
@@ -608,7 +728,7 @@ def clear(ctx: click.Context, yes: bool) -> None:
     stats_path = storage_dir / "stats.json"
     stats_path.write_text(json.dumps({"queries": 0, "raw_tokens": 0, "served_tokens": 0, "full_file_tokens": 0}))
 
-    click.echo(f"Cleared index data for '{project_name}'. Run 'cce index' to re-index.")
+    click.echo(f"  {CHECK} {success('Cleared')} index data for {project_name}. Run {dim('cce index')} to re-index.")
 
 
 @main.command()
@@ -644,20 +764,23 @@ def prune(ctx: click.Context, dry_run: bool) -> None:
         else:
             removed.append((project_dir.name, str(source_path), project_dir))
 
+    from context_engine.cli_style import success, warn, dim, CHECK, CROSS, DOT
+
     if not removed:
-        click.echo("Nothing to prune — all indexed projects still exist.")
+        click.echo(f"  {CHECK} {success('Nothing to prune')} — all indexed projects still exist.")
         for name, path in kept:
-            click.echo(f"  ✓ {name}  ({path})")
+            click.echo(f"    {CHECK} {name}  {dim(f'({path})')}")
         return
 
     for name, path, storage_dir in removed:
-        label = f"  {'[dry-run] would remove' if dry_run else '✗ removed'}  {name}  (source: {path})"
-        if not dry_run:
+        if dry_run:
+            click.echo(f"    {DOT} {warn('[dry-run] would remove')}  {name}  {dim(f'(source: {path})')}")
+        else:
             shutil.rmtree(storage_dir)
-        click.echo(label)
+            click.echo(f"    {CROSS} {warn('removed')}  {name}  {dim(f'(source: {path})')}")
 
     for name, path in kept:
-        click.echo(f"  ✓ kept  {name}  ({path})")
+        click.echo(f"    {CHECK} {dim('kept')}  {name}  {dim(f'({path})')}")
 
 
 def savings_shortcut() -> None:
@@ -728,9 +851,10 @@ def dashboard(ctx: click.Context, port: int, no_browser: bool) -> None:
     if port == 0:
         port = _find_free_port()
 
+    from context_engine.cli_style import header, value, dim
     url = f"http://localhost:{port}"
-    click.echo(f"CCE Dashboard at {url}")
-    click.echo("Press Ctrl+C to stop.")
+    click.echo(f"  {header('CCE Dashboard')} at {value(url)}")
+    click.echo(f"  {dim('Press Ctrl+C to stop.')}")
 
     if not no_browser:
         webbrowser.open(url)
@@ -760,15 +884,16 @@ def services_status() -> None:
         get_mcp_status(),
     ]
 
-    click.echo(f"{'SERVICE':<12}{'STATUS':<10}DETAIL")
-    click.echo("-" * 48)
+    from context_engine.cli_style import header, dim
+    click.echo(f"  {header('SERVICE'):<24}{header('STATUS'):<22}{header('DETAIL')}")
+    click.echo(f"  {dim('─' * 50)}")
 
     for row in rows:
         running = row["running"]
         status_text = "running" if running else "stopped"
         status_col = click.style(f"{status_text:<10}", fg="green" if running else "red")
         detail = row.get("detail", "")
-        click.echo(f"{row['name']:<12}{status_col}  {detail}")
+        click.echo(f"  {row['name']:<12}{status_col}  {dim(detail)}")
 
 
 @services.command(name="start")
@@ -806,18 +931,58 @@ def services_stop(service: str) -> None:
         click.echo(f"  {prefix} {msg}")
 
 
-async def _run_index(config, project_dir: str, full: bool = False, verbose: bool = False) -> None:
+async def _run_index(
+    config,
+    project_dir: str,
+    full: bool = False,
+    target_path: str | None = None,
+    verbose: bool = False,
+) -> None:
     """Run indexing pipeline (thin wrapper over `indexer.pipeline.run_indexing`)."""
     from context_engine.indexer.pipeline import run_indexing
 
     log_fn = (lambda msg: click.echo(msg)) if verbose else None
-    result = await run_indexing(config, project_dir, full=full, log_fn=log_fn)
+    from context_engine.cli_style import success, warn, dim, value, CHECK, CROSS
+
+    _showed_progress = False
+    _bar_width = 30
+
+    def progress_fn(current: int, total: int) -> None:
+        nonlocal _showed_progress
+        if not verbose and sys.stdout.isatty():
+            filled = int(_bar_width * current / total) if total else 0
+            bar = (
+                click.style("█" * filled, fg="cyan") +
+                click.style("░" * (_bar_width - filled), fg="bright_black")
+            )
+            pct = click.style(f"{int(100 * current / total) if total else 0}%", fg="bright_black")
+            count = click.style(f"{current}/{total}", fg="white", bold=True)
+            click.echo(f"\r    {bar}  {count} files  {pct}", nl=False)
+            _showed_progress = True
+
+    result = await run_indexing(
+        config, project_dir, full=full, target_path=target_path,
+        log_fn=log_fn, progress_fn=progress_fn,
+    )
+
+    if _showed_progress:
+        click.echo()  # newline after progress bar
+
     for err in result.errors:
-        click.echo(f"Error: {err}", err=True)
+        click.echo(f"  {CROSS} {warn(f'Error: {err}')}", err=True)
+
+    n_files = len(result.indexed_files)
+    detail_parts = []
+    if result.deleted_files:
+        detail_parts.append(f", pruned {warn(str(len(result.deleted_files)))} deleted")
+    if result.skipped_files:
+        detail_parts.append(f", skipped {dim(str(len(result.skipped_files)))} non-text")
+
     click.echo(
-        f"Indexed {result.total_chunks} chunks from {len(result.indexed_files)} files"
-        + (f", pruned {len(result.deleted_files)} deleted" if result.deleted_files else "")
-        + (f", skipped {len(result.skipped_files)} non-text" if result.skipped_files else "")
+        f"  {CHECK} " +
+        value(f"Indexed {result.total_chunks:,} chunks") +
+        click.style(f" from {n_files:,} file{'s' if n_files != 1 else ''}", fg="white") +
+        "".join(detail_parts)
     )
 
 

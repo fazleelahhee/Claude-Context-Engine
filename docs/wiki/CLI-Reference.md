@@ -1,34 +1,65 @@
 # CLI Reference
 
-Complete reference for every `cce` command with examples and expected output.
+Complete reference for every `cce` command with expected output.
+
+All commands use colorful, structured output. Green `✓` marks successful steps. Yellow `·` marks warnings or skipped steps. Red `✗` marks errors. Dim gray text shows secondary information and tips.
 
 ---
 
 ## cce init
 
-One-time setup for a project. Indexes all code, installs git hooks, and writes the MCP server entry to `.mcp.json`.
+One-time setup for a project. Checks dependencies, indexes all code, installs git hooks, and connects Claude Code via MCP.
 
 ```bash
 cd /path/to/your/project
 cce init
 ```
 
+**Expected output:**
+
+```
+  Claude Context Engine  ·  my-project
+  ────────────────────────────────────────────
+
+  Checking embedding model... downloading if needed (60 MB, first time only)... ready.
+  Ollama not running — using truncation compression.
+  Tip: ollama pull phi3:mini for LLM summarization
+
+  ✓ Git hooks installed  (3 hooks, auto-updates on commit)
+  ✓ MCP server registered in .mcp.json
+  ✓ CLAUDE.md created with CCE instructions
+  ✓ .gitignore updated with CCE entries
+
+  Indexing project...
+    ██████████████████████████████  134/134 files  100%
+
+  ✓ Indexed 1,247 chunks from 89 files
+
+  Done!  Restart Claude Code to activate CCE.
+```
+
+**With Ollama running:**
+
+```
+  Ollama detected — LLM summarization enabled.
+```
+
+**On a non-git project:**
+
+```
+  · Not a git repository — git hook skipped
+    Run `cce index` manually after making changes.
+```
+
 **What it does:**
-- Walks the repository and builds a vector + FTS index
-- Installs a `post-commit` git hook so the index stays current automatically
-- Writes `.mcp.json` pointing Claude Code at the local MCP server
-- Creates or updates `CLAUDE.md` with CCE instructions and output style rules
 
-**Example output:**
-```
-Indexing project...
-Indexed 1,240 chunks from 87 files
-Git hook installed at .git/hooks/post-commit
-MCP server entry written to .mcp.json
-CLAUDE.md updated with CCE instructions
-```
-
-**Works on non-git projects too.** If the directory is not a git repository, CCE skips the git hook step and indexes normally.
+- Warms the embedding model (downloads on first run)
+- Checks Ollama status and reports compression mode
+- Builds vector, FTS, and graph indexes
+- Installs `post-commit` and `pre-push` git hooks
+- Writes `.mcp.json` pointing Claude Code at the MCP server
+- Creates or updates `CLAUDE.md` with CCE instructions
+- Adds per-machine files to `.gitignore`
 
 ---
 
@@ -40,25 +71,38 @@ Re-index files that have changed since the last run.
 cce index
 ```
 
+**Expected output:**
+
+```
+  Indexing...
+    ████████░░░░░░░░░░░░░░░░░░░░░░  14/52 files  26%
+
+  ✓ Indexed 38 chunks from 3 files
+```
+
+On unchanged repos (nothing to update):
+
+```
+  Indexing...
+
+  ✓ Indexed 0 chunks from 0 files
+```
+
 **Variants:**
 
 ```bash
 # Force a full re-index of every file (ignores change detection)
 cce index --full
 
-# Index only a specific file
+# Index only a specific file or directory
 cce index --path src/payments/processor.py
-
-# Index only a specific directory
 cce index --path src/payments/
+
+# Verbose — shows each file being processed
+cce index -v
 ```
 
-**Example output:**
-```
-Indexed 3 chunks from 1 file, pruned 0 deleted
-```
-
-The git hook installed by `cce init` calls `cce index` automatically after every commit. You only need to run it manually if you want to index without committing.
+The git hook installed by `cce init` calls `cce index` automatically after every commit.
 
 ---
 
@@ -70,56 +114,88 @@ Show index health and a token savings summary for the current project.
 cce status
 ```
 
-**Example output:**
-```
-Project:    my-project
-Chunks:     1,240
-Files:      87
-Queries:    42
-Tokens saved: 67%
+**Expected output:**
 
-Embedding model: BAAI/bge-small-en-v1.5
-Storage:    ~/.claude-context-engine/projects/my-project/
+```
+  Storage path      ~/.claude-context-engine
+  Compression       standard
+  Resource profile  balanced
+
+  Token savings  (42 queries)
+    Raw tokens:    58,000
+    Served tokens: 18,400
+    ✓ Saved:       39,600  (68%)
+```
+
+**When not yet indexed:**
+
+```
+  · Project not indexed yet — run: cce init
+```
+
+**Options:**
+
+```bash
+# Single-line output (used by the SessionStart hook)
+cce status --oneline
+
+# JSON output
+cce status --json
+
+# Verbose — lists all indexed projects
+cce status -v
+```
+
+**Oneline output example** (shown at the top of each Claude Code session):
+
+```
+CCE v0.2.5 · my-project · 1247 chunks indexed · 68% saved over 42 queries
+USE context_search MCP tool for all code questions. Do NOT use Read/Grep to explore code.
 ```
 
 ---
 
 ## cce savings
 
-Visual token savings report in the terminal.
+Visual token savings report.
 
 ```bash
 cce savings
 ```
 
-**Example output:**
-```
-     my-project · 42 queries
-     18.4k / 58.0k tokens used (32%)
+**Expected output:**
 
-     Token savings
-     With CCE:     18,400 tokens  (32%)
-     Tokens saved: 39,600 tokens  (68%)
 ```
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶   my-project · 42 queries
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶   18.4k / 58.0k tokens used (32%)
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶   Token savings
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶   ⛁ With CCE:     18,400 tokens  (32%)
+     ⛁ ⛁ ⛁ ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶   ⛶ Tokens saved:  39,600 tokens  (68%)
+```
+
+The filled grid cells (`⛁`) represent tokens used. Empty cells (`⛶`) represent tokens saved.
 
 **Variants:**
 
 ```bash
-# Savings across every indexed project
+# Savings across all indexed projects
 cce savings --all
 
-# Machine-readable JSON (useful for scripts)
+# Machine-readable JSON
 cce savings --json
 ```
 
-**JSON output example:**
+**JSON output:**
+
 ```json
 {
   "project": "my-project",
   "queries": 42,
   "served_tokens": 18400,
   "full_file_tokens": 58000,
-  "savings_percent": 68.3
+  "tokens_saved": 39600,
+  "savings_pct": 68
 }
 ```
 
@@ -161,15 +237,16 @@ cce commands remove custom deploy
 
 ## cce clear
 
-Clear all index data and reset stats for the current project. Useful when you want a clean slate after major refactoring.
+Clear all index data and reset stats for the current project.
 
 ```bash
 cce clear
 ```
 
-CCE will ask for confirmation before deleting:
+CCE asks for confirmation before deleting:
+
 ```
-This will delete all index data for my-project. Continue? [y/N]
+Clear all index data for 'my-project'? This cannot be undone. [y/N]:
 ```
 
 ```bash
@@ -183,31 +260,46 @@ After clearing, run `cce index --full` to rebuild.
 
 ## cce prune
 
-Remove stored index data for projects whose directories no longer exist on disk. Keeps `~/.claude-context-engine/` tidy.
+Remove index data for projects whose directories no longer exist on disk.
 
 ```bash
 cce prune
 ```
 
-**Preview mode — shows what would be removed without deleting:**
+**Expected output:**
+
+```
+    ✗ removed  old-project  (source: /Users/raj/projects/old-project)
+    ✓ kept     my-project   (/Users/raj/projects/my-project)
+```
+
 ```bash
+# Preview without deleting
 cce prune --dry-run
 ```
 
-**Example output:**
+**Dry-run output:**
+
 ```
-Would remove: old-project (directory /Users/raj/projects/old-project not found)
-Run without --dry-run to delete.
+    · [dry-run] would remove  old-project  (source: /Users/raj/projects/old-project)
+    ✓ kept                    my-project   (/Users/raj/projects/my-project)
 ```
 
 ---
 
 ## cce dashboard
 
-Open the web dashboard in your browser for a visual overview of your index.
+Open the web dashboard in your browser.
 
 ```bash
 cce dashboard
+```
+
+**Output:**
+
+```
+  CCE Dashboard  at  http://localhost:52341
+  Press Ctrl+C to stop.
 ```
 
 The dashboard provides four views:
@@ -220,10 +312,7 @@ The dashboard provides four views:
 **Variants:**
 
 ```bash
-# Open on a specific port
 cce dashboard --port 8080
-
-# Start the server without opening a browser
 cce dashboard --no-browser
 ```
 
@@ -231,7 +320,7 @@ cce dashboard --no-browser
 
 ## cce services
 
-Manage Ollama and the Dashboard as background processes. Check status, start, and stop without blocking a terminal.
+Manage Ollama and the Dashboard as background processes.
 
 ### Check status
 
@@ -239,72 +328,136 @@ Manage Ollama and the Dashboard as background processes. Check status, start, an
 cce services
 ```
 
-**Example output:**
+**Expected output:**
+
 ```
-SERVICE     STATUS    DETAIL
-------------------------------------------------
-ollama      running   localhost:11434 (external)
-dashboard   stopped
-mcp         running   managed by Claude Code
+  SERVICE       STATUS      DETAIL
+  ──────────────────────────────────────────────────
+  ollama        running     localhost:11434 (external)
+  dashboard     stopped
+  mcp           running     managed by Claude Code
 ```
 
-- `ollama` and `dashboard` can be started and stopped by CCE
-- `mcp` is always managed by Claude Code and is shown read-only
+`ollama` and `dashboard` can be started and stopped by CCE. `mcp` is managed by Claude Code and shown read-only.
 
-### Start services
+### Start
 
 ```bash
-# Start everything (Ollama + Dashboard)
-cce services start
-
-# Start only Ollama
+cce services start              # Ollama + Dashboard
 cce services start ollama
-
-# Start the dashboard on the default port (8080)
 cce services start dashboard
-
-# Start the dashboard on a custom port
 cce services start dashboard --port 9000
 ```
 
-**Example output:**
+**Output:**
+
 ```
   ✓ Ollama started (PID 12345)
   ✓ Dashboard started at http://localhost:8080 (PID 12346)
 ```
 
-If a service is already running, CCE reports it instead of starting a duplicate:
+If already running:
+
 ```
   · Ollama is already running.
 ```
 
-### Stop services
+### Stop
 
 ```bash
-# Stop everything CCE started
-cce services stop
-
-# Stop only the dashboard
+cce services stop               # stop everything CCE started
 cce services stop dashboard
-
-# Stop only Ollama
 cce services stop ollama
 ```
 
-**Note:** CCE can only stop processes it started. If Ollama was started externally (e.g. via `ollama serve` in another terminal), CCE will report it as `running (external)` and will not stop it.
+CCE can only stop processes it started. Externally started processes show as `running (external)` and are not stopped.
+
+---
+
+## cce commands
+
+Manage per-project rules, preferences, and shell hooks that CCE surfaces to Claude.
+
+### Add a rule
+
+```bash
+cce commands add-rule 'NEVER generate down() in migrations — forward-only'
+```
+
+```
+  ✓ Rule added: NEVER generate down() in migrations — forward-only
+```
+
+### Set a preference
+
+```bash
+cce commands set-pref database PostgreSQL
+cce commands set-pref auth Sanctum
+```
+
+```
+  ✓ Preference set: database = PostgreSQL
+```
+
+### Add a hook command
+
+```bash
+cce commands add before_push 'composer test'
+cce commands add before_commit 'php-cs-fixer fix --dry-run'
+cce commands add on_start 'echo "Deploy freeze until Friday"'
+```
+
+```
+  ✓ Added to before_push: composer test
+```
+
+### Add a custom command
+
+```bash
+cce commands add-custom deploy 'kubectl apply -f k8s/'
+```
+
+```
+  ✓ Added custom command 'deploy': kubectl apply -f k8s/
+```
+
+### List
+
+```bash
+cce commands list
+```
+
+```yaml
+rules:
+  - NEVER generate down() in migrations — forward-only
+  - Use UUID for primary keys
+preferences:
+  database: PostgreSQL
+  auth: Sanctum
+before_push:
+  - composer test
+  - phpstan analyse
+custom:
+  deploy: kubectl apply -f k8s/
+```
+
+### Remove
+
+```bash
+cce commands remove before_push 'composer test'
+cce commands remove-rule 'Use UUID for primary keys'
+cce commands remove-pref database
+```
 
 ---
 
 ## cce serve
 
-Start the MCP server. Claude Code calls this automatically using the entry in `.mcp.json` — you do not need to run this manually.
+Start the MCP server. Claude Code calls this automatically via `.mcp.json` — you do not need to run this manually.
 
 ```bash
 cce serve
-```
 
-If you need to point the server at a specific project directory (useful for debugging):
-
-```bash
+# Point at a specific project directory (useful for debugging)
 cce serve --project-dir /path/to/your/project
 ```

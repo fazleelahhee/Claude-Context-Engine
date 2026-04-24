@@ -346,7 +346,7 @@ wheels = [
 
 [[package]]
 name = "claude-context-engine"
-version = "0.1.1"
+version = "0.2.5"
 source = { editable = "." }
 dependencies = [
     { name = "click" },

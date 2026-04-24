@@ -182,12 +182,14 @@ async def run_indexing(
     full: bool = False,
     target_path: str | None = None,
     log_fn=None,
+    progress_fn=None,
 ) -> IndexResult:
     """Run the indexing pipeline. Returns a structured `IndexResult`.
 
     `target_path` (optional) restricts indexing to a single file or subtree.
     `full=True` ignores the manifest and re-indexes everything visible.
     `log_fn(msg)` is called for verbose progress output if provided.
+    `progress_fn(current, total)` is called after each batch with file counts.
     """
     project_dir = Path(project_dir)
     project_name = project_dir.name
@@ -202,6 +204,7 @@ async def run_indexing(
             full=full,
             target_path=target_path,
             log_fn=log_fn,
+            progress_fn=progress_fn,
         )
 
 
@@ -213,6 +216,7 @@ async def _run_indexing_locked(
     full: bool,
     target_path: str | None,
     log_fn,
+    progress_fn=None,
 ) -> IndexResult:
     backend = LocalBackend(base_path=str(storage_base))
     chunker = Chunker()
@@ -327,6 +331,9 @@ async def _run_indexing_locked(
             all_chunks.extend(chunks)
             manifest.update(rel_path, content_hash)
             result.indexed_files.append(rel_path)
+
+        if progress_fn:
+            progress_fn(min(batch_start + len(batch_paths), len(file_iter)), len(file_iter))
 
     # Index git history on full runs (skip for non-git projects)
     _is_git = (Path(project_dir) / ".git").is_dir()
