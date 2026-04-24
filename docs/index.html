@@ -11,7 +11,7 @@
   <link rel="icon" type="image/svg+xml" href="logo.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,13 +27,13 @@
       --cyan-glow:  rgba(0,200,240,0.25);
       --purple:     #8b5cf6;
       --purple-dim: rgba(139,92,246,0.1);
-      --green:      #10d97e;
+      --green:      #3ecf8e;
       --green-dim:  rgba(16,217,126,0.1);
       --amber:      #f59e0b;
       --text:       #dde8ff;
       --text2:      #5c789e;
       --text3:      #2e4462;
-      --mono:       'JetBrains Mono', 'Fira Code', monospace;
+      --mono:       'DM Mono', 'JetBrains Mono', 'Fira Code', monospace;
     }
 
     html { scroll-behavior: smooth; }
@@ -41,7 +41,7 @@
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: 'Inter', system-ui, sans-serif;
+      font-family: 'DM Sans', 'Inter', system-ui, sans-serif;
       line-height: 1.6;
       overflow-x: hidden;
     }
@@ -412,7 +412,9 @@
     .how-card {
       background: var(--bg);
       padding: 40px 34px;
+      transition: background .25s, transform .25s cubic-bezier(.22,1,.36,1);
     }
+    .how-card:hover { background: var(--bg2); transform: translateY(-2px); }
 
     .how-num {
       font-family: var(--mono);
@@ -544,7 +546,7 @@
 
     .features-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(4, 1fr);
       gap: 14px;
       margin-top: 52px;
     }
@@ -554,9 +556,10 @@
       border: 1px solid var(--border);
       border-radius: 14px;
       padding: 30px;
-      transition: border-color .18s, background .18s;
+      transition: border-color .25s cubic-bezier(.22,1,.36,1), background .25s, transform .25s cubic-bezier(.22,1,.36,1), box-shadow .25s;
+      box-shadow: 0 2px 8px rgba(0,0,0,.2);
     }
-    .feat-card:hover { border-color: var(--border2); background: var(--bg3); }
+    .feat-card:hover { border-color: var(--border2); background: var(--bg3); transform: translateY(-3px); box-shadow: 0 12px 32px rgba(0,0,0,.35); }
 
     .feat-icon {
       width: 42px; height: 42px;
@@ -749,7 +752,7 @@
       .hero-title { font-size: 46px; }
       .how-grid { grid-template-columns: 1fr; gap: 0; }
       .savings-layout { grid-template-columns: 1fr; }
-      .features-grid { grid-template-columns: 1fr 1fr; }
+      .features-grid { grid-template-columns: repeat(2, 1fr); }
       .wrap { padding: 0 24px; }
       footer { flex-direction: column; gap: 16px; padding: 24px; text-align: center; }
     }
@@ -948,13 +951,23 @@
       </div>
       <div class="feat-card">
         <div class="feat-icon" style="background:var(--purple-dim)">🔄</div>
-        <div class="feat-title">Auto-Updates with Progress</div>
-        <p class="feat-body">Git hooks re-index on every commit. A live progress bar shows scanning status on large repos — no silent hangs, no guessing if it crashed.</p>
+        <div class="feat-title">Live File Watcher</div>
+        <p class="feat-body">Files are re-indexed automatically on save during <code>cce serve</code>. Git hooks handle commits. Debounced, deduped, zero manual effort.</p>
       </div>
       <div class="feat-card">
         <div class="feat-icon" style="background:var(--green-dim)">📋</div>
         <div class="feat-title">Project Commands</div>
-        <p class="feat-body">Persist rules, preferences, and shell hooks per project with <code>cce commands</code>. "Never use down() in migrations" — stored once, surfaced to Claude every session automatically.</p>
+        <p class="feat-body">Persist rules, preferences, and shell hooks per project with <code>cce commands</code>. "Never use down() in migrations" — stored once, surfaced to Claude every session.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon" style="background:var(--cyan-dim)">🎨</div>
+        <div class="feat-title">Colorful CLI</div>
+        <p class="feat-body">Every command outputs styled, animated results. Section headers, colored bullets, line-by-line reveal. Run <code>cce</code> for a 2-column status dashboard in your terminal.</p>
+      </div>
+      <div class="feat-card">
+        <div class="feat-icon" style="background:var(--purple-dim)">📊</div>
+        <div class="feat-title">Web Dashboard</div>
+        <p class="feat-body">Run <code>cce dashboard</code> for a Grafana-inspired dark theme with donut charts, bar graphs, file health, and live 5-second polling. All in a single embedded HTML file.</p>
       </div>
     </div>
   </div>
@@ -1137,6 +1150,16 @@ const HERO_LINES = [
   { html: '  <span class="t-ok">✓</span> <span style="font-weight:700;color:#dde8ff">Indexed 1,247 chunks</span> <span class="t-info">from 89 files</span>', delay: 520 },
   { html: '', delay: 200 },
   { html: '  <span class="t-ok" style="font-weight:700">Done!</span>  <span class="t-dim">Restart Claude Code to activate CCE.</span>', delay: 420 },
+  { html: '', delay: 300 },
+  { html: '<span class="t-dim">$</span> <span class="t-cmd">cce</span>', delay: 500 },
+  { html: '', delay: 200 },
+  { html: '<span class="t-dim">╭──────────── Claude Context Engine v0.2.9 ────────────╮</span>', delay: 80 },
+  { html: '<span class="t-dim">│</span>             <span class="t-cyan" style="font-weight:700">⬡  C C E  ⬡</span>              <span class="t-dim">│</span>', delay: 80 },
+  { html: '<span class="t-dim">│</span>             <span style="font-weight:700">my-project</span>              <span class="t-dim">│</span>', delay: 80 },
+  { html: '<span class="t-dim">├────────────────────┬─────────────────────┤</span>', delay: 80 },
+  { html: '<span class="t-dim">│</span> <span class="t-ok">●</span> Indexed  <span class="t-cyan">1,247</span> <span class="t-dim">│</span> <span class="t-cyan">cce status</span>  <span class="t-dim">info</span>    <span class="t-dim">│</span>', delay: 80 },
+  { html: '<span class="t-dim">│</span> <span class="t-ok">●</span> Savings  <span class="t-save">70%</span>   <span class="t-dim">│</span> <span class="t-cyan">cce savings</span> <span class="t-dim">tokens</span>  <span class="t-dim">│</span>', delay: 80 },
+  { html: '<span class="t-dim">╰────────────────────┴─────────────────────╯</span>', delay: 80 },
 ];
 
 let _termTimers = [];
@@ -1252,6 +1275,9 @@ function buildTicker() {
     { k: 'INPUT SAVINGS', v: '70%', vc: 'g' },
     { k: 'OUTPUT SAVINGS', v: '65%', vc: 'g' },
     { k: 'COLORFUL CLI', v: 'YES', vc: 'v' },
+    { k: 'LIVE WATCHER', v: 'YES', vc: 'g' },
+    { k: 'INSTALL SIZE', v: '204MB', vc: 'v' },
+    { k: 'VECTOR STORE', v: 'SQLITE-VEC', vc: 'v' },
   ];
   const track = document.getElementById('ticker');
   [0, 1].forEach(() => {
