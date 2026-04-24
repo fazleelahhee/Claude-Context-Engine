@@ -846,48 +846,61 @@ async def _run_serve(config) -> None:
         embedder=embedder, config=config,
     )
 
-    # Live file watcher — re-indexes changed files on save.
-    _reindex_queue: asyncio.Queue[str] = asyncio.Queue()
-
-    async def _on_file_change(file_path: str):
-        """Queue the file for re-indexing (non-blocking)."""
-        try:
-            rel = str(Path(file_path).relative_to(project_dir))
-        except ValueError:
-            return
-        await _reindex_queue.put(rel)
-
-    async def _reindex_worker():
-        """Background task that processes re-index requests sequentially."""
-        while True:
-            rel = await _reindex_queue.get()
-            try:
-                await run_indexing(config, project_dir, target_path=rel)
-                _log.debug("Re-indexed: %s", rel)
-            except Exception as exc:
-                _log.warning("Watch re-index failed for %s: %s", rel, exc)
-            _reindex_queue.task_done()
-
-    watcher = FileWatcher(
-        watch_dir=project_dir,
-        on_change=_on_file_change,
-        debounce_ms=config.indexer_debounce_ms,
-        ignore_patterns=config.indexer_ignore,
-    )
-
     chunk_count = backend._vector_store.count()
     import sys
-    print(f"CCE ready · {project_name} · {chunk_count} chunks indexed · live watcher active", file=sys.stderr)
 
-    loop = asyncio.get_running_loop()
-    worker_task = asyncio.create_task(_reindex_worker())
-    watcher.start(loop=loop)
+    watcher = None
+    worker_task = None
+
+    if config.indexer_watch:
+        # Live file watcher — re-indexes changed files on save.
+        _reindex_queue: asyncio.Queue[str] = asyncio.Queue()
+        _reindex_pending: set[str] = set()
+
+        async def _on_file_change(file_path: str):
+            """Queue the file for re-indexing, deduplicating pending entries."""
+            try:
+                rel = str(Path(file_path).relative_to(project_dir))
+            except ValueError:
+                return
+            if rel not in _reindex_pending:
+                _reindex_pending.add(rel)
+                await _reindex_queue.put(rel)
+
+        async def _reindex_worker():
+            """Background task that processes re-index requests sequentially."""
+            while True:
+                rel = await _reindex_queue.get()
+                _reindex_pending.discard(rel)
+                try:
+                    await run_indexing(config, project_dir, target_path=rel)
+                    _log.debug("Re-indexed: %s", rel)
+                except Exception as exc:
+                    _log.warning("Watch re-index failed for %s: %s", rel, exc)
+                _reindex_queue.task_done()
+
+        watcher = FileWatcher(
+            watch_dir=project_dir,
+            on_change=_on_file_change,
+            debounce_ms=config.indexer_debounce_ms,
+            ignore_patterns=config.indexer_ignore,
+        )
+
+        loop = asyncio.get_running_loop()
+        worker_task = asyncio.create_task(_reindex_worker())
+        watcher.start(loop=loop)
+
+    watcher_label = " · live watcher active" if watcher else ""
+    print(f"CCE ready · {project_name} · {chunk_count} chunks indexed{watcher_label}", file=sys.stderr)
+
     try:
         await mcp.run_stdio()
     finally:
-        watcher.stop()
-        worker_task.cancel()
-        try:
-            await worker_task
-        except asyncio.CancelledError:
-            pass
+        if watcher:
+            watcher.stop()
+        if worker_task:
+            worker_task.cancel()
+            try:
+                await worker_task
+            except asyncio.CancelledError:
+                pass

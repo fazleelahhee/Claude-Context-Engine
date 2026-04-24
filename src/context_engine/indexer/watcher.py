@@ -75,6 +75,7 @@ class FileWatcher:
         self._debounce_ms = debounce_ms
         self._ignore_patterns = ignore_patterns or []
         self._observer = None
+        self._handler = None
 
     def start(self, loop=None):
         """Start watching. Pass the running asyncio loop explicitly."""
@@ -83,7 +84,7 @@ class FileWatcher:
                 loop = asyncio.get_running_loop()
             except RuntimeError:
                 loop = asyncio.get_event_loop()
-        handler = _DebouncedHandler(
+        self._handler = _DebouncedHandler(
             on_change=self._on_change,
             debounce_ms=self._debounce_ms,
             ignore_patterns=self._ignore_patterns,
@@ -91,12 +92,17 @@ class FileWatcher:
             loop=loop,
         )
         self._observer = Observer()
-        self._observer.schedule(handler, self._watch_dir, recursive=True)
+        self._observer.schedule(self._handler, self._watch_dir, recursive=True)
         self._observer.daemon = True
         self._observer.start()
         log.debug("Watcher started for %s", self._watch_dir)
 
     def stop(self):
+        if self._handler:
+            with self._handler._lock:
+                if self._handler._timer:
+                    self._handler._timer.cancel()
+                    self._handler._timer = None
         if self._observer:
             self._observer.stop()
             self._observer.join(timeout=2)
