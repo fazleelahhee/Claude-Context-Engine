@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import sqlite3
+from threading import RLock
 
 from context_engine.models import Chunk
 
@@ -17,16 +18,26 @@ def _escape_fts5(query: str) -> str:
 
 
 class FTSStore:
+    """Single-connection SQLite FTS store, serialised with an RLock.
+
+    `check_same_thread=False` only disables thread ownership checks; concurrent
+    operations on one sqlite3 connection are still unsafe. Mirrors VectorStore's
+    locking pattern so dashboard/MCP/reindex calls running through asyncio
+    .to_thread don't interleave on the connection.
+    """
+
     def __init__(self, db_path: str) -> None:
         os.makedirs(db_path, exist_ok=True)
+        self._lock = RLock()
         self._conn = sqlite3.connect(
             os.path.join(db_path, "fts.db"), check_same_thread=False
         )
-        self._conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts "
-            "USING fts5(id UNINDEXED, content, file_path, language, chunk_type)"
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts "
+                "USING fts5(id UNINDEXED, content, file_path, language, chunk_type)"
+            )
+            self._conn.commit()
 
     def _ingest_sync(self, chunks: list[Chunk]) -> None:
         # executemany packs all rows into one prepared-statement batch — about
@@ -41,36 +52,40 @@ class FTSStore:
             )
             for chunk in chunks
         ]
-        self._conn.executemany(
-            "INSERT OR REPLACE INTO chunks_fts(id, content, file_path, language, chunk_type) "
-            "VALUES (?, ?, ?, ?, ?)",
-            rows,
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO chunks_fts(id, content, file_path, language, chunk_type) "
+                "VALUES (?, ?, ?, ?, ?)",
+                rows,
+            )
+            self._conn.commit()
 
     def _search_sync(self, escaped_query: str, top_k: int) -> list[tuple[str, float]]:
-        cursor = self._conn.execute(
-            "SELECT id, rank FROM chunks_fts WHERE chunks_fts MATCH ? "
-            "ORDER BY rank LIMIT ?",
-            (escaped_query, top_k),
-        )
-        return [(row[0], float(row[1])) for row in cursor.fetchall()]
+        with self._lock:
+            cursor = self._conn.execute(
+                "SELECT id, rank FROM chunks_fts WHERE chunks_fts MATCH ? "
+                "ORDER BY rank LIMIT ?",
+                (escaped_query, top_k),
+            )
+            return [(row[0], float(row[1])) for row in cursor.fetchall()]
 
     def _delete_sync(self, file_path: str) -> None:
-        self._conn.execute(
-            "DELETE FROM chunks_fts WHERE file_path = ?", (file_path,)
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                "DELETE FROM chunks_fts WHERE file_path = ?", (file_path,)
+            )
+            self._conn.commit()
 
     def _delete_files_sync(self, file_paths: list[str]) -> None:
         if not file_paths:
             return
         placeholders = ",".join("?" * len(file_paths))
-        self._conn.execute(
-            f"DELETE FROM chunks_fts WHERE file_path IN ({placeholders})",
-            file_paths,
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(
+                f"DELETE FROM chunks_fts WHERE file_path IN ({placeholders})",
+                file_paths,
+            )
+            self._conn.commit()
 
     async def ingest(self, chunks: list[Chunk]) -> None:
         if not chunks:
@@ -83,8 +98,9 @@ class FTSStore:
         return await asyncio.to_thread(self._search_sync, _escape_fts5(query), top_k)
 
     def clear(self) -> None:
-        self._conn.execute("DELETE FROM chunks_fts")
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM chunks_fts")
+            self._conn.commit()
 
     async def delete_by_file(self, file_path: str) -> None:
         await asyncio.to_thread(self._delete_sync, file_path)

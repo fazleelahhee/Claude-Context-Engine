@@ -3,6 +3,7 @@
 import asyncio
 import json
 import sqlite3
+from threading import RLock
 
 from context_engine.models import GraphNode, GraphEdge, NodeType, EdgeType
 
@@ -41,59 +42,71 @@ def _row_to_node(row: tuple) -> GraphNode:
 
 
 class GraphStore:
+    """Single-connection SQLite graph store, serialised with an RLock.
+
+    `check_same_thread=False` only disables thread ownership checks; concurrent
+    operations on one connection are still unsafe. Mirrors VectorStore's
+    locking pattern.
+    """
+
     def __init__(self, db_path: str) -> None:
         self._db_path = db_path + ".db"
+        self._lock = RLock()
         self._conn = sqlite3.connect(self._db_path, check_same_thread=False)
-        self._conn.executescript(_DDL)
-        self._conn.commit()
+        with self._lock:
+            self._conn.executescript(_DDL)
+            self._conn.commit()
 
     # ------------------------------------------------------------------
     # Sync internals (run inside asyncio.to_thread)
     # ------------------------------------------------------------------
 
     def _sync_ingest(self, nodes: list[GraphNode], edges: list[GraphEdge]) -> None:
-        cur = self._conn.cursor()
-        for node in nodes:
-            cur.execute(
-                "INSERT OR REPLACE INTO nodes (id, node_type, name, file_path, properties) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (node.id, node.node_type.value, node.name, node.file_path,
-                 json.dumps(node.properties)),
-            )
-        for edge in edges:
-            cur.execute(
-                "INSERT OR REPLACE INTO edges (source_id, target_id, edge_type, properties) "
-                "VALUES (?, ?, ?, ?)",
-                (edge.source_id, edge.target_id, edge.edge_type.value,
-                 json.dumps(edge.properties)),
-            )
-        self._conn.commit()
+        with self._lock:
+            cur = self._conn.cursor()
+            for node in nodes:
+                cur.execute(
+                    "INSERT OR REPLACE INTO nodes (id, node_type, name, file_path, properties) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (node.id, node.node_type.value, node.name, node.file_path,
+                     json.dumps(node.properties)),
+                )
+            for edge in edges:
+                cur.execute(
+                    "INSERT OR REPLACE INTO edges (source_id, target_id, edge_type, properties) "
+                    "VALUES (?, ?, ?, ?)",
+                    (edge.source_id, edge.target_id, edge.edge_type.value,
+                     json.dumps(edge.properties)),
+                )
+            self._conn.commit()
 
     def _sync_get_neighbors(self, node_id: str, edge_type: EdgeType | None) -> list[GraphNode]:
-        cur = self._conn.cursor()
-        if edge_type is None:
-            cur.execute(
-                "SELECT n.id, n.node_type, n.name, n.file_path, n.properties "
-                "FROM edges e JOIN nodes n ON e.target_id = n.id "
-                "WHERE e.source_id = ?",
-                (node_id,),
-            )
-        else:
-            cur.execute(
-                "SELECT n.id, n.node_type, n.name, n.file_path, n.properties "
-                "FROM edges e JOIN nodes n ON e.target_id = n.id "
-                "WHERE e.source_id = ? AND e.edge_type = ?",
-                (node_id, edge_type.value),
-            )
-        return [_row_to_node(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._conn.cursor()
+            if edge_type is None:
+                cur.execute(
+                    "SELECT n.id, n.node_type, n.name, n.file_path, n.properties "
+                    "FROM edges e JOIN nodes n ON e.target_id = n.id "
+                    "WHERE e.source_id = ?",
+                    (node_id,),
+                )
+            else:
+                cur.execute(
+                    "SELECT n.id, n.node_type, n.name, n.file_path, n.properties "
+                    "FROM edges e JOIN nodes n ON e.target_id = n.id "
+                    "WHERE e.source_id = ? AND e.edge_type = ?",
+                    (node_id, edge_type.value),
+                )
+            return [_row_to_node(row) for row in cur.fetchall()]
 
     def _sync_get_nodes_by_file(self, file_path: str) -> list[GraphNode]:
-        cur = self._conn.cursor()
-        cur.execute(
-            "SELECT id, node_type, name, file_path, properties FROM nodes WHERE file_path = ?",
-            (file_path,),
-        )
-        return [_row_to_node(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT id, node_type, name, file_path, properties FROM nodes WHERE file_path = ?",
+                (file_path,),
+            )
+            return [_row_to_node(row) for row in cur.fetchall()]
 
     def _sync_neighbors_for_files(
         self,
@@ -107,34 +120,36 @@ class GraphStore:
         """
         if not file_paths or not edge_types:
             return []
-        cur = self._conn.cursor()
-        file_placeholders = ",".join("?" * len(file_paths))
-        edge_placeholders = ",".join("?" * len(edge_types))
-        params: list = list(file_paths) + [et.value for et in edge_types]
-        node_filter = ""
-        if node_types:
-            node_placeholders = ",".join("?" * len(node_types))
-            node_filter = f" AND src.node_type IN ({node_placeholders})"
-            params.extend(nt.value for nt in node_types)
-        cur.execute(
-            f"SELECT DISTINCT tgt.id, tgt.node_type, tgt.name, tgt.file_path, tgt.properties "
-            f"FROM nodes src "
-            f"JOIN edges e ON e.source_id = src.id "
-            f"JOIN nodes tgt ON tgt.id = e.target_id "
-            f"WHERE src.file_path IN ({file_placeholders}) "
-            f"  AND e.edge_type IN ({edge_placeholders})"
-            f"{node_filter}",
-            params,
-        )
-        return [_row_to_node(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._conn.cursor()
+            file_placeholders = ",".join("?" * len(file_paths))
+            edge_placeholders = ",".join("?" * len(edge_types))
+            params: list = list(file_paths) + [et.value for et in edge_types]
+            node_filter = ""
+            if node_types:
+                node_placeholders = ",".join("?" * len(node_types))
+                node_filter = f" AND src.node_type IN ({node_placeholders})"
+                params.extend(nt.value for nt in node_types)
+            cur.execute(
+                f"SELECT DISTINCT tgt.id, tgt.node_type, tgt.name, tgt.file_path, tgt.properties "
+                f"FROM nodes src "
+                f"JOIN edges e ON e.source_id = src.id "
+                f"JOIN nodes tgt ON tgt.id = e.target_id "
+                f"WHERE src.file_path IN ({file_placeholders}) "
+                f"  AND e.edge_type IN ({edge_placeholders})"
+                f"{node_filter}",
+                params,
+            )
+            return [_row_to_node(row) for row in cur.fetchall()]
 
     def _sync_get_nodes_by_type(self, node_type: NodeType) -> list[GraphNode]:
-        cur = self._conn.cursor()
-        cur.execute(
-            "SELECT id, node_type, name, file_path, properties FROM nodes WHERE node_type = ?",
-            (node_type.value,),
-        )
-        return [_row_to_node(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                "SELECT id, node_type, name, file_path, properties FROM nodes WHERE node_type = ?",
+                (node_type.value,),
+            )
+            return [_row_to_node(row) for row in cur.fetchall()]
 
     def _sync_delete_by_file(self, file_path: str) -> None:
         self._sync_delete_by_files([file_path])
@@ -142,25 +157,26 @@ class GraphStore:
     def _sync_delete_by_files(self, file_paths: list[str]) -> None:
         if not file_paths:
             return
-        cur = self._conn.cursor()
-        file_placeholders = ",".join("?" * len(file_paths))
-        cur.execute(
-            f"SELECT id FROM nodes WHERE file_path IN ({file_placeholders})",
-            file_paths,
-        )
-        node_ids = [row[0] for row in cur.fetchall()]
-        if node_ids:
-            id_placeholders = ",".join("?" * len(node_ids))
+        with self._lock:
+            cur = self._conn.cursor()
+            file_placeholders = ",".join("?" * len(file_paths))
             cur.execute(
-                f"DELETE FROM edges WHERE source_id IN ({id_placeholders}) "
-                f"OR target_id IN ({id_placeholders})",
-                node_ids + node_ids,
+                f"SELECT id FROM nodes WHERE file_path IN ({file_placeholders})",
+                file_paths,
             )
-            cur.execute(
-                f"DELETE FROM nodes WHERE id IN ({id_placeholders})",
-                node_ids,
-            )
-        self._conn.commit()
+            node_ids = [row[0] for row in cur.fetchall()]
+            if node_ids:
+                id_placeholders = ",".join("?" * len(node_ids))
+                cur.execute(
+                    f"DELETE FROM edges WHERE source_id IN ({id_placeholders}) "
+                    f"OR target_id IN ({id_placeholders})",
+                    node_ids + node_ids,
+                )
+                cur.execute(
+                    f"DELETE FROM nodes WHERE id IN ({id_placeholders})",
+                    node_ids,
+                )
+            self._conn.commit()
 
     # ------------------------------------------------------------------
     # Public async API
@@ -195,6 +211,7 @@ class GraphStore:
         await asyncio.to_thread(self._sync_delete_by_files, file_paths)
 
     def clear(self) -> None:
-        self._conn.execute("DELETE FROM edges")
-        self._conn.execute("DELETE FROM nodes")
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute("DELETE FROM edges")
+            self._conn.execute("DELETE FROM nodes")
+            self._conn.commit()

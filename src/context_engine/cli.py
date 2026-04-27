@@ -1408,15 +1408,31 @@ def uninstall() -> None:
     else:
         lines.append(f"    {DOT} {dim('No .mcp.json found')}")
 
-    # Remove CCE block from CLAUDE.md
+    # Remove CCE block from CLAUDE.md. _extract_existing_cce_block() recognises
+    # the current versioned form (<!-- cce-block-version: N --> ... <!-- /cce-block -->),
+    # the legacy "## Context Engine (CCE)" heading-only form, AND the older
+    # CCE:BEGIN/CCE:END marker pair — keeping uninstall in lockstep with init
+    # so the routing instructions don't get left behind.
     claude_md = project_dir / "CLAUDE.md"
     if claude_md.exists():
         content = claude_md.read_text()
-        marker = "<!-- CCE:BEGIN -->"
-        end_marker = "<!-- CCE:END -->"
-        if marker in content:
-            start = content.index(marker)
-            end = content.index(end_marker) + len(end_marker) if end_marker in content else len(content)
+        block = _extract_existing_cce_block(content)
+        legacy_begin = "<!-- CCE:BEGIN -->"
+        legacy_end = "<!-- CCE:END -->"
+        if block is not None:
+            new_content = content.replace(block, "", 1).strip()
+            if new_content:
+                claude_md.write_text(new_content + "\n")
+            else:
+                claude_md.unlink()
+            lines.append(f"    {CROSS} {warn('Removed')} CCE block from CLAUDE.md")
+        elif legacy_begin in content:
+            start = content.index(legacy_begin)
+            end = (
+                content.index(legacy_end) + len(legacy_end)
+                if legacy_end in content
+                else len(content)
+            )
             new_content = (content[:start] + content[end:]).strip()
             if new_content:
                 claude_md.write_text(new_content + "\n")
@@ -1524,6 +1540,14 @@ def serve(ctx: click.Context, as_http: bool, host: str, port: int, project_dir: 
     if project_dir:
         import os
         os.chdir(project_dir)
+        # Click's main() loaded config from the launch cwd; if the user pointed
+        # us at a different project, re-load so its .context-engine.yaml wins.
+        # Without this, launchers running `cce serve --project-dir /repo` from
+        # a different cwd would silently ignore /repo/.context-engine.yaml.
+        target_config = Path(project_dir) / PROJECT_CONFIG_NAME
+        ctx.obj["config"] = load_config(
+            project_path=target_config if target_config.exists() else None
+        )
     if as_http:
         from context_engine.serve_http import run_http_server
         run_http_server(ctx.obj["config"], host=host, port=port)

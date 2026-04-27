@@ -224,7 +224,8 @@ def test_clear_index(tmp_path):
 
     assert r.status_code == 200
     assert r.json()["ok"] is True
-    assert json.loads((storage_base / "manifest.json").read_text()) == {}
+    raw = json.loads((storage_base / "manifest.json").read_text())
+    assert raw["files"] == {}
     assert json.loads((storage_base / "stats.json").read_text())["queries"] == 0
 
 
@@ -236,7 +237,8 @@ def test_delete_file(tmp_path):
     r = client.delete("/api/files/src%2Fcli.py")
 
     assert r.status_code == 200
-    remaining = json.loads((storage_base / "manifest.json").read_text())
+    raw = json.loads((storage_base / "manifest.json").read_text())
+    remaining = raw.get("files", raw)
     assert "src/cli.py" not in remaining
     assert "src/config.py" in remaining
 
@@ -253,6 +255,98 @@ def test_set_compression_invalid(tmp_path):
     client, _ = _make_client(tmp_path)
     r = client.post("/api/compression", json={"level": "turbo"})
     assert r.status_code == 422
+
+
+def test_status_with_versioned_manifest(tmp_path):
+    """Dashboard must read the real Manifest.save() schema, not treat the
+    top-level dict as {file_path: hash}. Regression for 2026-04-27 review."""
+    from context_engine.indexer.manifest import Manifest
+
+    client, storage_base = _make_client(tmp_path)
+    manifest = Manifest(manifest_path=storage_base / "manifest.json")
+    manifest.update("src/cli.py", "abc123")
+    manifest.update("src/config.py", "def456")
+    manifest.last_git_sha = "deadbeef"
+    manifest.save()
+
+    r = client.get("/api/status")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["initialized"] is True
+    # 2 real files, not 3 (which would mean __schema_version/files/last_git_sha
+    # were being counted as paths).
+    assert data["files"] == 2
+
+
+def test_files_with_versioned_manifest(tmp_path):
+    """/api/files must iterate the real manifest entries, not schema keys."""
+    from context_engine.indexer.manifest import Manifest
+
+    client, storage_base = _make_client(tmp_path)
+    project_dir = tmp_path / "workspace" / "my-project"
+    (project_dir / "src").mkdir(parents=True, exist_ok=True)
+    content = "def foo(): pass\n"
+    h = hashlib.sha256(content.encode()).hexdigest()
+    (project_dir / "src" / "cli.py").write_text(content)
+
+    manifest = Manifest(manifest_path=storage_base / "manifest.json")
+    manifest.update("src/cli.py", h)
+    manifest.save()
+
+    r = client.get("/api/files")
+    assert r.status_code == 200
+    files = r.json()
+    paths = [f["path"] for f in files]
+    assert paths == ["src/cli.py"]
+    assert "__schema_version" not in paths
+    assert "last_git_sha" not in paths
+    assert files[0]["status"] == "ok"
+
+
+def test_delete_with_versioned_manifest_preserves_schema(tmp_path):
+    """Deleting a file must keep __schema_version + last_git_sha intact."""
+    from context_engine.indexer.manifest import Manifest
+
+    client, storage_base = _make_client(tmp_path)
+    manifest = Manifest(manifest_path=storage_base / "manifest.json")
+    manifest.update("src/cli.py", "hash1")
+    manifest.update("src/config.py", "hash2")
+    manifest.last_git_sha = "deadbeef"
+    manifest.save()
+
+    r = client.delete("/api/files/src%2Fcli.py")
+    assert r.status_code == 200
+
+    raw = json.loads((storage_base / "manifest.json").read_text())
+    assert raw["__schema_version"] == 2
+    assert raw["last_git_sha"] == "deadbeef"
+    assert "src/cli.py" not in raw["files"]
+    assert "src/config.py" in raw["files"]
+
+    # Reload through Manifest to confirm round-trip is still valid.
+    reloaded = Manifest(manifest_path=storage_base / "manifest.json")
+    assert reloaded.schema_version == 2
+    assert reloaded.last_git_sha == "deadbeef"
+    assert reloaded.get_hash("src/config.py") == "hash2"
+
+
+def test_clear_writes_versioned_manifest(tmp_path):
+    """/api/clear must write the current Manifest schema, not a bare {}."""
+    from context_engine.indexer.manifest import Manifest
+
+    client, storage_base = _make_client(tmp_path)
+    manifest = Manifest(manifest_path=storage_base / "manifest.json")
+    manifest.update("foo.py", "h1")
+    manifest.save()
+
+    r = client.post("/api/clear")
+    assert r.status_code == 200
+
+    raw = json.loads((storage_base / "manifest.json").read_text())
+    assert raw == {"__schema_version": 2, "files": {}, "last_git_sha": None}
+    # Confirm the cleared file round-trips through Manifest with no needs_reindex.
+    reloaded = Manifest(manifest_path=storage_base / "manifest.json")
+    assert reloaded.needs_reindex is False
 
 
 def test_find_free_port():

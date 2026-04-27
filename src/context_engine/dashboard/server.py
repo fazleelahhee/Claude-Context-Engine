@@ -92,7 +92,17 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
         return {}
 
     def _read_manifest() -> dict[str, str]:
-        return _read_json(storage_base / "manifest.json")
+        """Return {file_path: content_hash} regardless of on-disk schema.
+
+        Manifest.save() writes {"__schema_version": 2, "files": {...},
+        "last_git_sha": ...}. Older installs may have left the flat
+        {file_path: hash} form. Both shapes collapse to the same dict here.
+        """
+        raw = _read_json(storage_base / "manifest.json")
+        if isinstance(raw.get("files"), dict):
+            return raw["files"]
+        # Legacy flat manifest, or empty / unreadable file.
+        return raw if raw and "__schema_version" not in raw else {}
 
     def _read_stats() -> dict:
         return _read_json(storage_base / "stats.json")
@@ -225,7 +235,9 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
     @app.post("/api/clear")
     async def clear_index() -> dict:
         await backend.clear()
-        (storage_base / "manifest.json").write_text(json.dumps({}))
+        (storage_base / "manifest.json").write_text(
+            json.dumps({"__schema_version": 2, "files": {}, "last_git_sha": None})
+        )
         (storage_base / "stats.json").write_text(json.dumps(
             {"queries": 0, "raw_tokens": 0, "served_tokens": 0, "full_file_tokens": 0}
         ))
@@ -237,12 +249,19 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
         # paths, so anything else is either an attacker probe or a bug.
         if file_path.startswith("/") or ".." in Path(file_path).parts:
             return JSONResponse({"error": "invalid file_path"}, status_code=400)
-        manifest = _read_manifest()
-        if file_path not in manifest:
+        files = _read_manifest()
+        if file_path not in files:
             return JSONResponse({"error": "file not indexed"}, status_code=404)
         await backend.delete_by_file(file_path)
-        manifest.pop(file_path, None)
-        (storage_base / "manifest.json").write_text(json.dumps(manifest))
+        files.pop(file_path, None)
+        # Preserve schema fields (last_git_sha) when rewriting.
+        raw = _read_json(storage_base / "manifest.json")
+        if isinstance(raw.get("files"), dict):
+            raw["files"] = files
+            payload = raw
+        else:
+            payload = {"__schema_version": 2, "files": files, "last_git_sha": None}
+        (storage_base / "manifest.json").write_text(json.dumps(payload))
         return {"ok": True, "deleted": file_path}
 
     @app.post("/api/compression")

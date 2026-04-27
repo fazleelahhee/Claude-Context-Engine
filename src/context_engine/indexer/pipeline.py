@@ -401,12 +401,11 @@ async def _run_indexing_locked(
         if progress_fn:
             progress_fn(min(batch_start + len(batch_paths), len(file_iter)), len(file_iter))
 
-    # Single batched delete for every file we're about to re-ingest. The
-    # previous code awaited backend.delete_by_file() inside the per-file loop,
-    # serialising the loop on small SQLite roundtrips — this collapses all of
-    # them into one delete-IN per store.
-    if files_to_replace:
-        await backend.delete_by_files(files_to_replace)
+    # NOTE: replacement deletes for `files_to_replace` are deferred until
+    # after embedding succeeds — see below. Deleting up front made the index
+    # vulnerable to a transient embed/ingest failure wiping previously-good
+    # data. The single batched delete still happens, just on the durable side
+    # of the embedder call.
 
     # Index git history on full runs (skip for non-git projects)
     _is_git = (Path(project_dir) / ".git").is_dir()
@@ -433,7 +432,9 @@ async def _run_indexing_locked(
 
     if all_chunks:
         # Embedding is where first-run model downloads happen; isolate failures
-        # here so we don't write an index with empty vectors.
+        # here so we don't write an index with empty vectors. Crucially, the
+        # replacement deletes (files_to_replace) have NOT happened yet, so a
+        # download or model failure leaves the previous index intact.
         cache = EmbeddingCache(storage_base / "embedding_cache.db")
         try:
             embedder = Embedder(model_name=config.embedding_model, cache=cache)
@@ -443,8 +444,9 @@ async def _run_indexing_locked(
                 msg = f"Embedding failed: {exc}"
                 result.errors.append(msg)
                 log.warning(msg, exc_info=exc)
-                # Don't ingest; the manifest was already updated in the loop but
-                # re-running with `full=True` will fix it.
+                # Manifest was updated in-memory in the loop but never reaches
+                # disk because we return before manifest.save(); the previous
+                # on-disk manifest + index data are still valid.
                 return result
             result.cache_hits = cache.hits
             result.cache_misses = cache.misses
@@ -466,6 +468,18 @@ async def _run_indexing_locked(
         finally:
             cache.close()
 
+        # Embedding succeeded — now it's safe to drop the rows we're about to
+        # replace. Still ordered before ingest so the new chunk IDs don't
+        # collide with the old ones across the three stores.
+        if files_to_replace:
+            try:
+                await backend.delete_by_files(files_to_replace)
+            except Exception as exc:
+                msg = f"Pre-ingest delete failed: {exc}"
+                result.errors.append(msg)
+                log.warning(msg, exc_info=exc)
+                return result
+
         try:
             await backend.ingest(all_chunks, all_nodes, all_edges)
         except Exception as exc:
@@ -475,6 +489,16 @@ async def _run_indexing_locked(
             return result
 
         result.total_chunks = len(all_chunks)
+    elif files_to_replace:
+        # No new chunks (e.g. all changed files chunked to nothing) but we
+        # still need to drop their old rows.
+        try:
+            await backend.delete_by_files(files_to_replace)
+        except Exception as exc:
+            msg = f"Replacement delete failed: {exc}"
+            result.errors.append(msg)
+            log.warning(msg, exc_info=exc)
+            return result
 
     # Prune chunks for files that were in the manifest but no longer on disk.
     # Only meaningful for project-wide runs; skip when a single path was targeted.
