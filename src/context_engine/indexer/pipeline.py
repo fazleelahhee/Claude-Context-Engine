@@ -21,8 +21,24 @@ from context_engine.indexer.embedder import Embedder
 from context_engine.indexer.embedding_cache import EmbeddingCache
 from context_engine.indexer.git_indexer import index_commits
 from context_engine.indexer.manifest import Manifest
-from context_engine.models import GraphNode, GraphEdge, NodeType, EdgeType
+from context_engine.models import ChunkType, GraphNode, GraphEdge, NodeType, EdgeType
 from context_engine.storage.local_backend import LocalBackend
+
+
+# Map a chunk's semantic type to its graph node type. Without this every
+# non-function chunk used to land as NodeType.CLASS, which polluted the graph
+# (e.g. markdown / yaml / json / module-level fallback chunks all looked like
+# classes and degraded related_context expansion).
+_CHUNK_TO_NODE_TYPE = {
+    ChunkType.FUNCTION: NodeType.FUNCTION,
+    ChunkType.CLASS: NodeType.CLASS,
+    ChunkType.MODULE: NodeType.MODULE,
+    ChunkType.DOC: NodeType.DOC,
+    ChunkType.COMMENT: NodeType.DOC,
+    ChunkType.COMMIT: NodeType.COMMIT,
+    ChunkType.SESSION: NodeType.SESSION,
+    ChunkType.DECISION: NodeType.DECISION,
+}
 
 log = logging.getLogger(__name__)
 
@@ -369,10 +385,8 @@ async def _run_indexing_locked(
                     )
 
                 for chunk in chunks:
-                    node_type = (
-                        NodeType.FUNCTION
-                        if chunk.chunk_type.value == "function"
-                        else NodeType.CLASS
+                    node_type = _CHUNK_TO_NODE_TYPE.get(
+                        chunk.chunk_type, NodeType.MODULE
                     )
                     node_name = (
                         chunk.content.split("(")[0].split(":")[-1].strip()

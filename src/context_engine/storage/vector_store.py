@@ -104,7 +104,14 @@ class VectorStore:
                     "Embedding dimension changed (%d -> %d), rebuilding vector table",
                     self._dim, dim,
                 )
+                # Wipe both halves of the index. Keeping `chunks` while
+                # dropping `chunks_vec` would leave previously-indexed rows
+                # counted by count_chunks() / file_chunk_counts() but with no
+                # vector to retrieve, so search would silently miss them.
+                # chunk_compressions is keyed by chunk_id, so flush it too.
                 self._conn.execute("DROP TABLE IF EXISTS chunks_vec")
+                self._conn.execute("DELETE FROM chunks")
+                self._conn.execute("DELETE FROM chunk_compressions")
             self._conn.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vec
                 USING vec0(embedding float[{dim}])

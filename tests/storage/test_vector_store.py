@@ -95,6 +95,41 @@ def test_clear_resets_table(tmp_path):
     assert vs.count() == 0
 
 
+def test_dim_change_clears_chunks_table(tmp_path):
+    """Embedding dimension change must wipe the chunks table too.
+
+    Regression for the 2026-04-27 review: previously only chunks_vec was
+    dropped, leaving chunks rows that count_chunks/file_chunk_counts still
+    reported but that search could never return.
+    """
+    from context_engine.models import Chunk, ChunkType
+    import asyncio
+
+    vs = VectorStore(db_path=str(tmp_path / "db"))
+    # First ingest at dim=4.
+    asyncio.run(vs.ingest([
+        Chunk(id="c1", content="a", chunk_type=ChunkType.FUNCTION,
+              file_path="a.py", start_line=1, end_line=1, language="python",
+              embedding=[0.1, 0.2, 0.3, 0.4]),
+    ]))
+    assert vs.count() == 1
+
+    # Re-ingest a *different* chunk at dim=8 — simulates switching models.
+    asyncio.run(vs.ingest([
+        Chunk(id="c2", content="b", chunk_type=ChunkType.FUNCTION,
+              file_path="b.py", start_line=1, end_line=1, language="python",
+              embedding=[0.1] * 8),
+    ]))
+
+    # Only the new chunk should remain — c1 was orphaned by the dim change.
+    assert vs.count() == 1
+    assert vs.file_chunk_counts() == {"b.py": 1}
+    # And it should be queryable (not just an orphan).
+    results = asyncio.run(vs.search(query_embedding=[0.1] * 8, top_k=5))
+    assert len(results) == 1
+    assert results[0].id == "c2"
+
+
 def test_file_chunk_counts_after_ingest(tmp_path):
     from context_engine.models import Chunk, ChunkType
     import asyncio
