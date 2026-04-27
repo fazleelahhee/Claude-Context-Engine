@@ -70,6 +70,18 @@ class VectorStore:
                 CREATE INDEX IF NOT EXISTS idx_chunks_file_path
                 ON chunks(file_path)
             """)
+            # Cache of LLM-summarised / truncated chunk text. Keyed by
+            # (chunk_id, level) because different compression levels produce
+            # different output. Cleared automatically when the chunk is
+            # re-ingested (delete-by-file via FK-like DELETE in delete_by_file).
+            self._conn.execute("""
+                CREATE TABLE IF NOT EXISTS chunk_compressions (
+                    chunk_id TEXT NOT NULL,
+                    level TEXT NOT NULL,
+                    compressed TEXT NOT NULL,
+                    PRIMARY KEY (chunk_id, level)
+                )
+            """)
             # Detect vector dimension from existing data
             row = self._conn.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks_vec'"
@@ -215,8 +227,45 @@ class VectorStore:
                     "WHERE rowid IN (SELECT rowid FROM chunks WHERE file_path = ?)",
                     (file_path,),
                 )
+            # Drop cached summaries for any chunks belonging to this file
+            # before the chunks themselves go away — otherwise stale summaries
+            # would survive a re-index.
+            self._conn.execute(
+                "DELETE FROM chunk_compressions "
+                "WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path = ?)",
+                (file_path,),
+            )
             self._conn.execute("DELETE FROM chunks WHERE file_path = ?", (file_path,))
             self._conn.commit()
+
+    def get_cached_compression(self, chunk_id: str, level: str) -> str | None:
+        """Return the cached compressed text for (chunk_id, level), or None."""
+        with self._lock:
+            try:
+                row = self._conn.execute(
+                    "SELECT compressed FROM chunk_compressions "
+                    "WHERE chunk_id = ? AND level = ?",
+                    (chunk_id, level),
+                ).fetchone()
+            except Exception as exc:
+                log.debug("get_cached_compression failed for %s/%s: %s", chunk_id, level, exc)
+                return None
+        return row[0] if row else None
+
+    def put_cached_compression(self, chunk_id: str, level: str, compressed: str) -> None:
+        """Persist a compression result so the same chunk isn't recompressed
+        on every retrieval. Silently ignores write errors — caching is best
+        effort, the caller already has the value to return to the user."""
+        with self._lock:
+            try:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO chunk_compressions "
+                    "(chunk_id, level, compressed) VALUES (?, ?, ?)",
+                    (chunk_id, level, compressed),
+                )
+                self._conn.commit()
+            except Exception as exc:
+                log.debug("put_cached_compression failed for %s/%s: %s", chunk_id, level, exc)
 
     def count(self) -> int:
         with self._lock:
@@ -240,6 +289,7 @@ class VectorStore:
         with self._lock:
             try:
                 self._conn.execute("DELETE FROM chunks")
+                self._conn.execute("DELETE FROM chunk_compressions")
                 if self._dim is not None:
                     self._conn.execute("DROP TABLE IF EXISTS chunks_vec")
                     self._dim = None

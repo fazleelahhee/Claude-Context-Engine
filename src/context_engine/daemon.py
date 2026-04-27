@@ -30,7 +30,11 @@ class Daemon:
         self._backend = await self._create_backend()
         embedder = Embedder(model_name=self._config.embedding_model)
         retriever = HybridRetriever(backend=self._backend, embedder=embedder)
-        compressor = Compressor(ollama_url="http://localhost:11434", model=self._config.compression_model)
+        compressor = Compressor(
+            ollama_url="http://localhost:11434",
+            model=self._config.compression_model,
+            cache=self._backend,
+        )
         if self._config.indexer_watch:
             self._watcher = FileWatcher(
                 watch_dir=self._project_dir, on_change=self._on_file_change,
@@ -67,7 +71,7 @@ class Daemon:
     async def generate_bootstrap(self) -> str:
         embedder = Embedder(model_name=self._config.embedding_model)
         retriever = HybridRetriever(backend=self._backend, embedder=embedder)
-        compressor = Compressor(model=self._config.compression_model)
+        compressor = Compressor(model=self._config.compression_model, cache=self._backend)
         bootstrap = BootstrapBuilder(max_tokens=self._config.bootstrap_max_tokens)
         chunks = await retriever.retrieve("project overview architecture", top_k=30)
         await compressor.compress(chunks, level=self._config.compression_level)

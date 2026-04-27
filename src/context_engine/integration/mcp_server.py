@@ -24,10 +24,34 @@ log = logging.getLogger(__name__)
 _CHARS_PER_TOKEN = 4
 _MAX_QUERY_CHARS = 10_000
 _MAX_TOP_K = 100
+# Search up to this many recent session files when recalling decisions.
+# Older files past this window are silently dropped — see roadmap item
+# "persistent session search across projects" for how this should evolve.
+_SESSION_RECALL_WINDOW = 50
+# Minimum cosine-derived similarity (1 - distance) for a session entry to
+# qualify as a topic match. Tuned conservatively — substring grep would
+# return 0 results for paraphrases, vector recall now returns paraphrase
+# matches, but we want to avoid drowning the caller in unrelated decisions.
+_SESSION_RECALL_MIN_SIM = 0.35
 
 
 def _count_tokens(text: str) -> int:
     return max(1, len(text) // _CHARS_PER_TOKEN)
+
+
+def _cosine_sim(a, b) -> float:
+    """Cosine similarity between two equal-length numeric sequences. Returns 0
+    on degenerate input (zero norm) instead of NaN."""
+    dot = 0.0
+    na = 0.0
+    nb = 0.0
+    for x, y in zip(a, b):
+        dot += x * y
+        na += x * x
+        nb += y * y
+    if na <= 0.0 or nb <= 0.0:
+        return 0.0
+    return dot / (na**0.5 * nb**0.5)
 
 
 def _clamp_top_k(value, default: int = 10) -> int:
@@ -139,10 +163,44 @@ class ContextEngineMCP:
     def _load_stats(self) -> dict:
         if self._stats_path.exists():
             try:
-                return json.loads(self._stats_path.read_text())
+                data = json.loads(self._stats_path.read_text())
+                # Backfill new keys for stats files written by older versions.
+                data.setdefault("queries", 0)
+                data.setdefault("raw_tokens", 0)
+                data.setdefault("served_tokens", 0)
+                data.setdefault("full_file_tokens", 0)
+                return data
             except (json.JSONDecodeError, OSError):
                 pass
-        return {"queries": 0, "raw_tokens": 0, "served_tokens": 0, "full_file_tokens": 0}
+        return {
+            "queries": 0,
+            "raw_tokens": 0,
+            "served_tokens": 0,
+            "full_file_tokens": 0,
+        }
+
+    @staticmethod
+    def _split_savings(stats: dict) -> dict:
+        """Decompose token savings into the two distinct effects:
+
+        - retrieval_savings_pct: how much we saved by serving targeted chunks
+          instead of full files. This is the "didn't dump every byte" win.
+        - compression_savings_pct: how much we saved by truncating / LLM-
+          summarising those chunks before sending. This is the "compress what
+          we did serve" win.
+
+        Reporting them mixed (the old "70%") was misleading because the full-
+        file baseline is a strawman — no one actually pastes whole files.
+        """
+        full = max(stats.get("full_file_tokens", 0), 0)
+        raw = max(stats.get("raw_tokens", 0), 0)
+        served = max(stats.get("served_tokens", 0), 0)
+        retrieval_pct = int(round((1 - raw / full) * 100)) if full > 0 and raw <= full else 0
+        compression_pct = int(round((1 - served / raw) * 100)) if raw > 0 and served <= raw else 0
+        return {
+            "retrieval_savings_pct": max(0, retrieval_pct),
+            "compression_savings_pct": max(0, compression_pct),
+        }
 
     def _save_stats(self) -> None:
         try:
@@ -619,40 +677,74 @@ class ContextEngineMCP:
             log.warning("Failed to persist session %s", self._session_id)
 
     def _search_sessions(self, topic: str) -> list[str]:
-        """Search decisions and code-area notes across all sessions."""
-        needle = topic.lower()
-        matches: list[str] = []
-        # Current in-memory session (may not yet be flushed).
+        """Search decisions, code areas, and Q&A across recent sessions.
+
+        Uses the same embedder as code search so paraphrases match — recording
+        "Use JWT with RS256" and querying "auth" now surfaces the decision
+        instead of returning empty as the prior substring grep did. Falls back
+        to substring matching only if embedding fails (e.g. embedder not loaded).
+        """
+        topic = topic.strip()
+        if not topic:
+            return []
+
+        # Collect candidate entries from current + recent sessions.
         current = self._session_capture._active.get(self._session_id)  # noqa: SLF001
         sessions: list[dict] = []
         if current:
             sessions.append(current)
-        sessions.extend(self._session_capture.load_recent_sessions(limit=20))
+        sessions.extend(
+            self._session_capture.load_recent_sessions(limit=_SESSION_RECALL_WINDOW)
+        )
 
+        candidates: list[str] = []
         seen: set[str] = set()
         for session in sessions:
             for decision in session.get("decisions", []):
-                text = f"[decision] {decision.get('decision', '')} — {decision.get('reason', '')}"
-                if needle in text.lower() and text not in seen:
+                text = (
+                    f"[decision] {decision.get('decision', '')} — "
+                    f"{decision.get('reason', '')}"
+                )
+                if text not in seen:
                     seen.add(text)
-                    matches.append(text)
+                    candidates.append(text)
             for area in session.get("code_areas", []):
                 text = (
                     f"[code_area] {area.get('file_path', '')} — "
                     f"{area.get('description', '')}"
                 )
-                if needle in text.lower() and text not in seen:
+                if text not in seen:
                     seen.add(text)
-                    matches.append(text)
+                    candidates.append(text)
             for question in session.get("questions", []):
                 text = (
                     f"[q&a] {question.get('question', '')} → "
                     f"{question.get('answer', '')}"
                 )
-                if needle in text.lower() and text not in seen:
+                if text not in seen:
                     seen.add(text)
-                    matches.append(text)
-        return matches
+                    candidates.append(text)
+
+        if not candidates:
+            return []
+
+        # Vector recall: embed topic + each candidate, rank by cosine similarity.
+        try:
+            topic_vec = list(self._embedder.embed_query(topic))
+            scored: list[tuple[float, str]] = []
+            for text in candidates:
+                vec = list(self._embedder.embed_query(text))
+                sim = _cosine_sim(topic_vec, vec)
+                if sim >= _SESSION_RECALL_MIN_SIM:
+                    scored.append((sim, text))
+            scored.sort(key=lambda pair: pair[0], reverse=True)
+            return [text for _, text in scored]
+        except Exception as exc:
+            # If embedding fails for any reason, fall back to a tolerant
+            # substring match so callers always get *something* useful.
+            log.debug("Session vector recall failed (%s); falling back to substring", exc)
+            needle = topic.lower()
+            return [t for t in candidates if needle in t.lower()]
 
     # ── MCP prompts ─────────────────────────────────────────────────────────
 

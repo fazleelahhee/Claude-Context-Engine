@@ -54,15 +54,21 @@ def test_savings_no_data(runner, tmp_path):
 
 
 def test_savings_with_data(runner, stats_dir):
-    """savings command shows correct token counts and savings percentage."""
+    """savings command shows the honest split between retrieval and compression."""
     storage_path, project_name = stats_dir
     result = _invoke_savings(runner, storage_path, project_name)
     assert result.exit_code == 0
     assert "test-project" in result.output
-    assert "5.0k" in result.output       # baseline tokens (fmt_k)
-    assert "2,000" in result.output      # served_tokens
-    assert "3,000" in result.output      # tokens_saved
-    assert "60%" in result.output        # savings_pct
+    # Three absolute totals, _fmt_k-formatted (served / raw / full-file baseline).
+    assert "2.0k" in result.output      # served_tokens
+    assert "3.0k" in result.output      # raw_tokens (chunks before compression)
+    assert "5.0k" in result.output      # full_file baseline
+    # Split percentages reported separately so the headline doesn't conflate them.
+    # Retrieval = (5000-3000)/5000 = 40%; Compression = (3000-2000)/3000 = 33%.
+    assert "40%" in result.output
+    assert "33%" in result.output
+    assert "Retrieval" in result.output
+    assert "Compression" in result.output
 
 
 def test_savings_json_output(runner, stats_dir):

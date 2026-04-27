@@ -5,12 +5,19 @@ from context_engine.models import Chunk
 from context_engine.storage.backend import StorageBackend
 from context_engine.indexer.embedder import Embedder
 from context_engine.retrieval.confidence import ConfidenceScorer
-from context_engine.retrieval.query_parser import QueryParser
+from context_engine.retrieval.query_parser import ParsedQuery, QueryIntent, QueryParser
 
 log = logging.getLogger(__name__)
 
 _DEPRIORITISED_PATHS = {"tests/", "test_", "docs/", "spec", "plan"}
 _RRF_K = 60
+# Confidence weight in the final blend. The remainder goes to RRF, normalised to
+# [0,1] by the best score in the candidate set so an exact-match FTS rank-1 hit
+# scores the same as a vector rank-1 hit instead of being clamped to ~1.0.
+_CONFIDENCE_WEIGHT = 0.5
+# When the parsed query looks like a code lookup, give FTS more pull because
+# exact-identifier hits are usually what the user wants.
+_FTS_BOOST_CODE_LOOKUP = 1.5
 
 
 class HybridRetriever:
@@ -72,7 +79,12 @@ class HybridRetriever:
             except Exception as exc:
                 log.warning("Failed to hydrate FTS-only chunks: %s", exc)
 
-        # Compute RRF scores
+        # Compute RRF scores. Boost FTS contribution when the parsed intent
+        # is CODE_LOOKUP — exact identifier matches are almost always what the
+        # user wants and would otherwise be drowned by semantic-similarity hits.
+        fts_weight = (
+            _FTS_BOOST_CODE_LOOKUP if parsed.intent == QueryIntent.CODE_LOOKUP else 1.0
+        )
         all_ids = set(vector_ranks.keys()) | set(fts_ids.keys())
         rrf_scores: dict[str, float] = {}
         for id_ in all_ids:
@@ -80,8 +92,14 @@ class HybridRetriever:
             if id_ in vector_ranks:
                 score += 1.0 / (_RRF_K + vector_ranks[id_])
             if id_ in fts_ids:
-                score += 1.0 / (_RRF_K + fts_ids[id_])
+                score += fts_weight * (1.0 / (_RRF_K + fts_ids[id_]))
             rrf_scores[id_] = score
+
+        # Normalise RRF to [0, 1] by the best score in this candidate set.
+        # The previous `min(rrf * _RRF_K, 1.0)` saturated nearly every result to
+        # ~1.0, so confidence_score dominated the blend and FTS rank carried
+        # almost no signal past the top few. Rank-normalising restores gradient.
+        max_rrf = max(rrf_scores.values()) if rrf_scores else 0.0
 
         # Score with confidence scorer
         scored: list[tuple[Chunk, float]] = []
@@ -99,7 +117,11 @@ class HybridRetriever:
                 keyword_distance=keyword_distance,
             )
 
-            final_score = 0.5 * conf_score + 0.5 * min(rrf_score * _RRF_K, 1.0)
+            normalised_rrf = (rrf_score / max_rrf) if max_rrf > 0 else 0.0
+            final_score = (
+                _CONFIDENCE_WEIGHT * conf_score
+                + (1.0 - _CONFIDENCE_WEIGHT) * normalised_rrf
+            )
             final_score = self._apply_path_penalty(chunk.file_path, final_score)
             chunk.confidence_score = final_score
 

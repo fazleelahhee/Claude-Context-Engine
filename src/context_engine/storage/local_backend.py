@@ -85,6 +85,12 @@ class LocalBackend:
     def file_chunk_counts(self) -> dict[str, int]:
         return self._vector_store.file_chunk_counts()
 
+    def get_cached_compression(self, chunk_id: str, level: str) -> str | None:
+        return self._vector_store.get_cached_compression(chunk_id, level)
+
+    def put_cached_compression(self, chunk_id: str, level: str, compressed: str) -> None:
+        self._vector_store.put_cached_compression(chunk_id, level, compressed)
+
     async def clear(self) -> None:
         self._vector_store.clear()
         self._fts_store.clear()

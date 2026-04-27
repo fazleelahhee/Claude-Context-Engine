@@ -192,7 +192,7 @@ def run_http_server(config=None, host: str = "127.0.0.1", port: int = 8765) -> N
 
     backend = LocalBackend(base_path=str(storage_base))
     embedder = Embedder(model_name=config.embedding_model)
-    compressor = Compressor(model=config.compression_model)
+    compressor = Compressor(model=config.compression_model, cache=backend)
 
     api_token = os.environ.get("CCE_API_TOKEN") or None
     if host not in _LOOPBACK_HOSTS and not api_token:

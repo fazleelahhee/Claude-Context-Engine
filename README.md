@@ -37,11 +37,12 @@ Without CCE, every session looks like this:
 **The token cost adds up fast:**
 
 ```
-Without CCE:  paste payments.py + shipping.py = 45,000 tokens
-With CCE:     search "payment processing"      =    800 tokens
+Wholesale paste:  payments.py + shipping.py        = 45,000 tokens
+Targeted read:    Read(payments.py, lines 45-90)   =  4,200 tokens
+CCE retrieval:    context_search "payment ..."     =    800 tokens
 ```
 
-Over 30 queries in a project, that gap compounds into real money.
+Targeted reads with `Read` already win the lion's share of that gap. CCE's marginal contribution is on top of that — ranked retrieval, optional summarization, and persistent decisions across sessions. `cce savings` reports retrieval savings and compression savings separately so you can see what each is worth on your repo.
 
 ## How CCE Fixes It
 
@@ -234,14 +235,19 @@ cce savings
 
 ```
      ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   my-project · 38 queries
-     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   14.2k / 48.0k tokens used (30%)
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   14.2k served · 26.0k chunks raw · 48.0k full-file baseline
      ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶
-     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   Token savings
-     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ With CCE:     14,200 tokens  (30%)
-     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛶ Tokens saved:  33,800 tokens  (70%)
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   Token savings (split)
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛁ Retrieval:    46%  vs reading full files
+     ⛁ ⛁ ⛁ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶ ⛶   ⛶ Compression:  45%  chunk → summary
 ```
 
-Savings grow over time. Each query retrieves a targeted slice rather than an entire file. The alternative is pasting entire files on every session.
+CCE reports two distinct savings effects:
+
+- **Retrieval savings** — the fraction you save by serving targeted chunks instead of full files. Comparing against reading whole files is a strawman (no human or tool actually does that), so treat this as a ceiling on the wholesale-paste alternative, not a real cost you avoid every session.
+- **Compression savings** — the fraction you save *on top of that* by truncating or LLM-summarising the retrieved chunks before sending. This is the directly attributable saving vs. retrieval-only.
+
+Earlier versions reported a single combined number that conflated the two and over-stated the win. The split is honest: ~30-50% on each axis is typical and additive in practice.
 
 ---
 

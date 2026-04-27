@@ -929,19 +929,39 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         served = stats.get("served_tokens", 0)
         queries = stats.get("queries", 0)
         raw = stats.get("raw_tokens", 0)
+
+        # Two distinct savings effects, reported separately so the headline
+        # number isn't muddled by mixing "we didn't dump full files" with
+        # "we summarised what we did serve":
+        #   retrieval = (full_file - raw)  / full_file
+        #   compression = (raw - served)   / raw
+        retrieval_pct = (
+            int(round((1 - raw / full_file) * 100))
+            if full_file > 0 and raw <= full_file
+            else 0
+        )
+        compression_pct = (
+            int(round((1 - served / raw) * 100))
+            if raw > 0 and served <= raw
+            else 0
+        )
+        retrieval_pct = max(0, retrieval_pct)
+        compression_pct = max(0, compression_pct)
+
         baseline = max(full_file, raw) if full_file > 0 else raw
-        saved = max(0, baseline - served)
         used_pct = served / baseline if baseline > 0 else 0
-        saved_pct = int((1 - used_pct) * 100) if baseline > 0 else 0
-        used_pct_int = int(used_pct * 100)
 
         labels: list[str] = [
             f"  {bold(name)} {dim('·')} {value(f'{queries:,}')} {dim('queries')}",
-            f"  {value(_fmt_k(served))}{dim('/')}{value(_fmt_k(baseline))} {dim('tokens used')} {dim(f'({used_pct_int}%)')}",
+            f"  {value(_fmt_k(served))} {dim('served')}  {dim('·')}  "
+            f"{value(_fmt_k(raw))} {dim('chunks raw')}  {dim('·')}  "
+            f"{value(_fmt_k(full_file))} {dim('full-file baseline')}",
             "",
-            f"  {header('Token savings')}",
-            f"  {click.style(_FILLED, fg='cyan')} {label('With CCE:')}    {value(f'{served:>10,}')} {dim('tokens')}  {dim(f'({used_pct_int}%)')}",
-            f"  {click.style(_EMPTY, dim=True)} {success('Tokens saved:')} {success(f'{saved:>10,}')} {dim('tokens')}  {success(f'({saved_pct}%)')}",
+            f"  {header('Token savings (split)')}",
+            f"  {click.style(_FILLED, fg='cyan')} {label('Retrieval:  ')}"
+            f"  {success(f'{retrieval_pct:>3}%')}  {dim('vs reading full files')}",
+            f"  {click.style(_EMPTY, dim=True)} {label('Compression:')}"
+            f"  {success(f'{compression_pct:>3}%')}  {dim('chunk → summary')}",
         ]
 
         grid = _grid_rows(used_pct, rows=len(labels))
@@ -955,13 +975,27 @@ def _run_savings_report(config, *, as_json: bool = False, all_projects: bool = F
         served = stats.get("served_tokens", 0)
         baseline = max(full_file, raw) if full_file > 0 else raw
         saved = baseline - served
+        retrieval_pct = (
+            int(round((1 - raw / full_file) * 100))
+            if full_file > 0 and raw <= full_file
+            else 0
+        )
+        compression_pct = (
+            int(round((1 - served / raw) * 100))
+            if raw > 0 and served <= raw
+            else 0
+        )
         return {
             "project": name,
             "queries": stats.get("queries", 0),
             "full_file_tokens": full_file,
+            "raw_tokens": raw,
             "served_tokens": served,
             "tokens_saved": saved,
+            # Kept for backward compat with anything scraping this JSON:
             "savings_pct": int(saved / baseline * 100) if baseline > 0 else 0,
+            "retrieval_savings_pct": max(0, retrieval_pct),
+            "compression_savings_pct": max(0, compression_pct),
         }
 
     # Collect projects
@@ -1590,7 +1624,7 @@ async def _run_serve(config) -> None:
     backend = LocalBackend(base_path=str(storage_base))
     embedder = Embedder(model_name=config.embedding_model)
     retriever = HybridRetriever(backend=backend, embedder=embedder)
-    compressor = Compressor(model=config.compression_model)
+    compressor = Compressor(model=config.compression_model, cache=backend)
     mcp = ContextEngineMCP(
         retriever=retriever, backend=backend, compressor=compressor,
         embedder=embedder, config=config,
