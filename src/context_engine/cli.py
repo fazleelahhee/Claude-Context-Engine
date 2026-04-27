@@ -630,6 +630,24 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
         else:
             lines.append(f"    {DOT} {dim('No usage recorded yet')}  {dim('run context_search via MCP')}")
 
+    # Embedding cache stats
+    cache_db = Path(config.storage_path) / project_name / "embedding_cache.db"
+    if cache_db.exists():
+        lines.append("")
+        lines.append(section("Embedding Cache"))
+        lines.append("")
+        try:
+            from context_engine.indexer.embedding_cache import EmbeddingCache
+            cache = EmbeddingCache(cache_db)
+            cache_size = cache.size()
+            cache.close()
+            lines.append(f"    {BULLET} {label('Cached embeddings')}  {value(f'{cache_size:,}')}")
+            # Show file size
+            db_size_mb = cache_db.stat().st_size / (1024 * 1024)
+            lines.append(f"    {BULLET} {label('Cache size')}         {value(f'{db_size_mb:.1f} MB')}")
+        except Exception:
+            lines.append(f"    {DOT} {dim('Error reading cache')}")
+
     if verbose:
         storage_path = Path(config.storage_path)
         if storage_path.exists():
@@ -1541,11 +1559,18 @@ async def _run_index(
     if result.skipped_files:
         detail_parts.append(f", skipped {dim(str(len(result.skipped_files)))} non-text")
 
+    cache_info = ""
+    if result.cache_hits > 0:
+        total_embeds = result.cache_hits + result.cache_misses
+        pct = int(result.cache_hits / total_embeds * 100)
+        cache_info = f", {dim(f'{pct}% cache hit')}"
+
     click.echo(
         f"  {CHECK} " +
         value(f"Indexed {result.total_chunks:,} chunks") +
         click.style(f" from {n_files:,} file{'s' if n_files != 1 else ''}", fg="white") +
-        "".join(detail_parts)
+        "".join(detail_parts) +
+        cache_info
     )
 
     # Update full_file_tokens baseline so cce savings shows codebase size
