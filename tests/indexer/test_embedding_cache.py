@@ -31,6 +31,57 @@ def _make_chunk(content: str, chunk_id: str = "c1") -> Chunk:
     )
 
 
+def test_model_namespacing_isolates_caches(tmp_path):
+    """A switch between embedding models must not return the previous
+    model's vectors. Regression for the 2026-04-27 PR review."""
+    path = tmp_path / "ec.db"
+    h = EmbeddingCache.content_hash("def add(a, b): return a + b")
+
+    cache_a = EmbeddingCache(path, model_name="model-A")
+    cache_a.put(h, [0.1] * 384)
+    cache_a.close()
+
+    cache_b = EmbeddingCache(path, model_name="model-B")
+    # Different model — must miss even though the content hash matches.
+    assert cache_b.get(h) is None
+    # Reading on model-A still works (different connection, same DB file).
+    cache_a2 = EmbeddingCache(path, model_name="model-A")
+    assert cache_a2.get(h) is not None
+    cache_a2.close()
+    cache_b.close()
+
+
+def test_legacy_v1_table_is_dropped(tmp_path):
+    """Opening a cache with the old (model-less) schema drops it.
+
+    Old vectors had no model attribution, so reusing them after a model
+    swap could return wrong-meaning embeddings.
+    """
+    import sqlite3
+
+    path = tmp_path / "ec.db"
+    # Manually create a v1 table to simulate an upgrade-in-place scenario.
+    conn = sqlite3.connect(str(path))
+    conn.execute(
+        "CREATE TABLE embedding_cache (content_hash TEXT PRIMARY KEY, "
+        "dim INTEGER NOT NULL, embedding BLOB NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO embedding_cache VALUES (?, ?, ?)",
+        ("legacy-hash", 4, b"\x00" * 16),
+    )
+    conn.commit()
+    conn.close()
+
+    # Opening through v2 EmbeddingCache should drop the legacy table.
+    cache = EmbeddingCache(path, model_name="m1")
+    assert cache.get("legacy-hash") is None  # legacy data gone
+    # New schema works.
+    cache.put("h1", [0.1, 0.2, 0.3])
+    assert cache.get("h1") == pytest.approx([0.1, 0.2, 0.3], rel=1e-6)
+    cache.close()
+
+
 def test_put_and_get(cache):
     h = EmbeddingCache.content_hash("hello world")
     emb = [0.1, 0.2, 0.3]

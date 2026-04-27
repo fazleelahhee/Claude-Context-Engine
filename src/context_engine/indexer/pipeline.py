@@ -449,7 +449,13 @@ async def _run_indexing_locked(
         # here so we don't write an index with empty vectors. Crucially, the
         # replacement deletes (files_to_replace) have NOT happened yet, so a
         # download or model failure leaves the previous index intact.
-        cache = EmbeddingCache(storage_base / "embedding_cache.db")
+        # Cache is namespaced by model name so swapping `embedding_model` in
+        # config can't reuse vectors from the previous model (different
+        # semantics + possibly different dim).
+        cache = EmbeddingCache(
+            storage_base / "embedding_cache.db",
+            model_name=config.embedding_model,
+        )
         try:
             embedder = Embedder(model_name=config.embedding_model, cache=cache)
             try:

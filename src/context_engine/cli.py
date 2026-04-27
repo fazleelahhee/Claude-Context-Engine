@@ -733,7 +733,7 @@ def status(ctx: click.Context, output_json: bool, oneline: bool) -> None:
     if cache_db.exists():
         try:
             from context_engine.indexer.embedding_cache import EmbeddingCache
-            _cache = EmbeddingCache(cache_db)
+            _cache = EmbeddingCache(cache_db, model_name=config.embedding_model)
             try:
                 cache_size = _cache.size()
             finally:
