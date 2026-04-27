@@ -62,7 +62,6 @@ class Config:
     indexer_watch: bool = True
     indexer_debounce_ms: int = 500
     indexer_ignore: list[str] = field(default_factory=lambda: list(DEFAULT_IGNORE))
-    indexer_languages: list[str] = field(default_factory=list)
 
     # Storage
     storage_path: str = str(Path.home() / ".claude-context-engine" / "projects")
@@ -101,7 +100,6 @@ _EXPECTED_TYPES: dict[str, type | tuple[type, ...]] = {
     "indexer_watch": bool,
     "indexer_debounce_ms": int,
     "indexer_ignore": list,
-    "indexer_languages": list,
     "storage_path": str,
 }
 
@@ -118,7 +116,6 @@ def _apply_dict_to_config(config: Config, data: dict) -> None:
         ("indexer", "watch"): "indexer_watch",
         ("indexer", "debounce_ms"): "indexer_debounce_ms",
         ("indexer", "ignore"): "indexer_ignore",
-        ("indexer", "languages"): "indexer_languages",
         ("storage", "path"): "storage_path",
     }
     for (section, key), attr in mapping.items():

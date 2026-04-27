@@ -204,29 +204,6 @@ class ContextEngineMCP:
             "full_file_tokens": 0,
         }
 
-    @staticmethod
-    def _split_savings(stats: dict) -> dict:
-        """Decompose token savings into the two distinct effects:
-
-        - retrieval_savings_pct: how much we saved by serving targeted chunks
-          instead of full files. This is the "didn't dump every byte" win.
-        - compression_savings_pct: how much we saved by truncating / LLM-
-          summarising those chunks before sending. This is the "compress what
-          we did serve" win.
-
-        Reporting them mixed (the old "70%") was misleading because the full-
-        file baseline is a strawman — no one actually pastes whole files.
-        """
-        full = max(stats.get("full_file_tokens", 0), 0)
-        raw = max(stats.get("raw_tokens", 0), 0)
-        served = max(stats.get("served_tokens", 0), 0)
-        retrieval_pct = int(round((1 - raw / full) * 100)) if full > 0 and raw <= full else 0
-        compression_pct = int(round((1 - served / raw) * 100)) if raw > 0 and served <= raw else 0
-        return {
-            "retrieval_savings_pct": max(0, retrieval_pct),
-            "compression_savings_pct": max(0, compression_pct),
-        }
-
     def _save_stats(self) -> None:
         try:
             _atomic_write_text(self._stats_path, json.dumps(self._stats))

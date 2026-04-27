@@ -1,9 +1,9 @@
 """Content hash manifest for incremental indexing."""
 import json
 import logging
-import os
-import tempfile
 from pathlib import Path
+
+from context_engine.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
 
@@ -70,23 +70,9 @@ class Manifest:
         return self._entries.get(file_path) != content_hash
 
     def save(self) -> None:
-        """Atomic save — write to a tempfile in the same dir then rename."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp_name = tempfile.mkstemp(
-            prefix=self._path.name + ".", suffix=".tmp", dir=str(self._path.parent)
-        )
         payload = {
             "__schema_version": CURRENT_SCHEMA_VERSION,
             "files": self._entries,
             "last_git_sha": self._last_git_sha,
         }
-        try:
-            with os.fdopen(fd, "w") as f:
-                json.dump(payload, f)
-            os.replace(tmp_name, self._path)
-        except Exception:
-            try:
-                os.unlink(tmp_name)
-            except OSError:
-                pass
-            raise
+        atomic_write_text(self._path, json.dumps(payload))

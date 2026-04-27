@@ -17,8 +17,7 @@ def _configure_mcp(project_dir: Path) -> bool:
     Returns True if the entry was added. Uses an atomic write so a crash or
     partial write can't destroy pre-existing MCP server entries in the file.
     """
-    import os
-    import tempfile
+    from context_engine.utils import atomic_write_text
 
     mcp_path = project_dir / ".mcp.json"
     cce_bin = Path(sys.executable).parent / "cce"
@@ -39,21 +38,7 @@ def _configure_mcp(project_dir: Path) -> bool:
         return False  # already configured
 
     servers["context-engine"] = entry
-
-    # Atomic write: serialise to a tempfile in the same dir, then rename.
-    fd, tmp_name = tempfile.mkstemp(
-        prefix=".mcp.json.", suffix=".tmp", dir=str(project_dir)
-    )
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(json.dumps(data, indent=2) + "\n")
-        os.replace(tmp_name, mcp_path)
-    except Exception:
-        try:
-            os.unlink(tmp_name)
-        except OSError:
-            pass
-        raise
+    atomic_write_text(mcp_path, json.dumps(data, indent=2) + "\n")
     return True
 
 
@@ -1504,8 +1489,6 @@ def stop(service: str) -> None:
 
 def savings_shortcut() -> None:
     """Entry point for the `cce-savings` shortcut command."""
-    import sys as _sys
-
     @click.command()
     @click.option("--json", "as_json", is_flag=True, help="Output as JSON")
     @click.option("--all", "all_projects", is_flag=True, help="Show all projects")

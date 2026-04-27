@@ -71,21 +71,6 @@ class SessionCapture:
                     continue
                 counts[fp] = counts.get(fp, 0) + 1
 
-    def get_top_touched_files(self, session_id, limit: int = 10) -> list[tuple[str, int]]:
-        """Return the most-touched file paths in this session as (path, count)."""
-        with self._lock:
-            session = self._active.get(session_id)
-            if not session:
-                return []
-            counts = dict(session.get("touched_files", {}))
-        return sorted(counts.items(), key=lambda pair: pair[1], reverse=True)[:limit]
-
-    def record_question(self, session_id, question, answer):
-        with self._lock:
-            session = self._active.get(session_id)
-            if session:
-                session["questions"].append({"question": question, "answer": answer, "timestamp": time.time()})
-
     def get_session_snapshot(self, session_id) -> dict | None:
         """Return a shallow copy of the active session for safe inspection.
         Returns None if the session_id isn't in _active."""

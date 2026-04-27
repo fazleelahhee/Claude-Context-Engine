@@ -10,7 +10,6 @@ import logging
 import os
 from functools import lru_cache
 
-import numpy as np
 from fastembed import TextEmbedding
 
 from context_engine.indexer.embedding_cache import EmbeddingCache
@@ -31,7 +30,6 @@ class Embedder:
         model_name: str = "BAAI/bge-small-en-v1.5",
         cache: EmbeddingCache | None = None,
     ) -> None:
-        self._model_name = model_name
         self._cache = cache
         # Resolve short names: "all-MiniLM-L6-v2" → "sentence-transformers/all-MiniLM-L6-v2"
         # but leave fully qualified names like "BAAI/bge-small-en-v1.5" alone.
