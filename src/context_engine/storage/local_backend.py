@@ -56,24 +56,15 @@ class LocalBackend:
         """
         from context_engine.models import EdgeType, NodeType
 
+        if not file_paths:
+            return []
         input_set = set(file_paths)
-        related: set[str] = set()
-
-        for fp in file_paths:
-            nodes = await self._graph_store.get_nodes_by_file(fp)
-            for node in nodes:
-                if node.node_type not in (NodeType.FUNCTION, NodeType.CLASS,
-                                          NodeType.FILE, NodeType.MODULE):
-                    continue
-                for edge_type in (EdgeType.CALLS, EdgeType.IMPORTS):
-                    neighbors = await self._graph_store.get_neighbors(
-                        node.id, edge_type
-                    )
-                    for neighbor in neighbors:
-                        if neighbor.file_path and neighbor.file_path not in input_set:
-                            related.add(neighbor.file_path)
-
-        return list(related)
+        neighbors = await self._graph_store.neighbors_for_files(
+            file_paths,
+            edge_types=[EdgeType.CALLS, EdgeType.IMPORTS],
+            node_types=[NodeType.FUNCTION, NodeType.CLASS, NodeType.FILE, NodeType.MODULE],
+        )
+        return list({n.file_path for n in neighbors if n.file_path and n.file_path not in input_set})
 
     async def get_chunk_by_id(self, chunk_id: str) -> Chunk | None:
         return await self._vector_store.get_by_id(chunk_id)

@@ -3,6 +3,7 @@ import hashlib
 
 import tree_sitter_python as tspython
 import tree_sitter_javascript as tsjavascript
+import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Parser
 
 from context_engine.models import Chunk, ChunkType
@@ -22,6 +23,8 @@ _IMPORT_TYPES = {
 _LANGUAGES = {
     "python": Language(tspython.language()),
     "javascript": Language(tsjavascript.language()),
+    "typescript": Language(tstypescript.language_typescript()),
+    "tsx": Language(tstypescript.language_tsx()),
 }
 
 

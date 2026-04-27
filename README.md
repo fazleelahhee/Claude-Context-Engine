@@ -481,11 +481,10 @@ ollama serve
 | Python | `.py` |
 | JavaScript | `.js`, `.jsx` |
 | TypeScript | `.ts`, `.tsx` |
-| PHP | `.php` |
 
 ### Fallback chunking
 
-All other text-based files (Markdown, YAML, config files, etc.) are chunked by line range. Go, Rust, Java, and C are planned.
+All other text-based files (Markdown, YAML, PHP, config files, etc.) are chunked by line range. AST-aware chunking for PHP, Go, Rust, Java, and C is planned.
 
 ---
 

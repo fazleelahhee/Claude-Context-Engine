@@ -95,6 +95,39 @@ class GraphStore:
         )
         return [_row_to_node(row) for row in cur.fetchall()]
 
+    def _sync_neighbors_for_files(
+        self,
+        file_paths: list[str],
+        edge_types: list[EdgeType],
+        node_types: list[NodeType] | None = None,
+    ) -> list[GraphNode]:
+        """Single query: target-nodes of edges originating from any node belonging
+        to any of `file_paths`, filtered by edge_type (and optionally source-node
+        type). Replaces N+1 calls to get_nodes_by_file + get_neighbors per result.
+        """
+        if not file_paths or not edge_types:
+            return []
+        cur = self._conn.cursor()
+        file_placeholders = ",".join("?" * len(file_paths))
+        edge_placeholders = ",".join("?" * len(edge_types))
+        params: list = list(file_paths) + [et.value for et in edge_types]
+        node_filter = ""
+        if node_types:
+            node_placeholders = ",".join("?" * len(node_types))
+            node_filter = f" AND src.node_type IN ({node_placeholders})"
+            params.extend(nt.value for nt in node_types)
+        cur.execute(
+            f"SELECT DISTINCT tgt.id, tgt.node_type, tgt.name, tgt.file_path, tgt.properties "
+            f"FROM nodes src "
+            f"JOIN edges e ON e.source_id = src.id "
+            f"JOIN nodes tgt ON tgt.id = e.target_id "
+            f"WHERE src.file_path IN ({file_placeholders}) "
+            f"  AND e.edge_type IN ({edge_placeholders})"
+            f"{node_filter}",
+            params,
+        )
+        return [_row_to_node(row) for row in cur.fetchall()]
+
     def _sync_get_nodes_by_type(self, node_type: NodeType) -> list[GraphNode]:
         cur = self._conn.cursor()
         cur.execute(
@@ -133,6 +166,16 @@ class GraphStore:
 
     async def get_nodes_by_file(self, file_path: str) -> list[GraphNode]:
         return await asyncio.to_thread(self._sync_get_nodes_by_file, file_path)
+
+    async def neighbors_for_files(
+        self,
+        file_paths: list[str],
+        edge_types: list[EdgeType],
+        node_types: list[NodeType] | None = None,
+    ) -> list[GraphNode]:
+        return await asyncio.to_thread(
+            self._sync_neighbors_for_files, file_paths, edge_types, node_types
+        )
 
     async def get_nodes_by_type(self, node_type: NodeType) -> list[GraphNode]:
         return await asyncio.to_thread(self._sync_get_nodes_by_type, node_type)

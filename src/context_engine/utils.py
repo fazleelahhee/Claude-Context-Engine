@@ -8,13 +8,17 @@ from pathlib import Path
 def resolve_cce_binary() -> str:
     """Find the globally installed cce binary path.
 
-    Checks ~/.local/bin/cce, /usr/local/bin/cce, shutil.which,
-    then falls back to sys.argv[0] if it looks like cce, or bare "cce".
+    Checks user-local then system install paths across both Linux and macOS
+    (Homebrew on Apple Silicon installs to /opt/homebrew/bin), then PATH,
+    then sys.argv[0] if it looks like cce, then a bare "cce" fallback.
     """
-    for candidate in [
-        Path.home() / ".local" / "bin" / "cce",
-        Path("/usr/local/bin/cce"),
-    ]:
+    candidates = [
+        Path.home() / ".local" / "bin" / "cce",   # pipx / uv tool default (Linux + macOS)
+        Path("/opt/homebrew/bin/cce"),            # macOS Homebrew on Apple Silicon
+        Path("/usr/local/bin/cce"),               # macOS Homebrew on Intel + Linux /usr/local
+        Path("/opt/local/bin/cce"),               # MacPorts
+    ]
+    for candidate in candidates:
         if candidate.is_file() and os.access(candidate, os.X_OK):
             return str(candidate)
     found = shutil.which("cce")

@@ -182,11 +182,14 @@ def start_ollama() -> tuple[bool, str]:
             ["ollama", "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            # Detach from CCE's process group so SIGINT to the CLI doesn't
+            # kill the background daemon. Works on both Linux and macOS.
+            start_new_session=True,
         )
         _write_pid("ollama", proc.pid)
         return True, f"Ollama started (PID {proc.pid})"
     except FileNotFoundError:
-        return False, "ollama not found. Install it: brew install ollama"
+        return False, "ollama not found. Install: https://ollama.com (or `brew install ollama` on macOS)"
     except Exception as exc:
         return False, f"Failed to start Ollama: {exc}"
 
@@ -221,6 +224,7 @@ def start_dashboard(port: int = _DASHBOARD_DEFAULT_PORT) -> tuple[bool, str]:
             [cce_bin, "dashboard", "--no-browser", "--port", str(port)],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            start_new_session=True,
         )
         _write_pid("dashboard", proc.pid)
         (_pid_dir() / "dashboard.port").write_text(str(port))

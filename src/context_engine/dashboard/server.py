@@ -4,17 +4,23 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 from typing import Literal
 
-from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, Response
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from context_engine.config import Config
 from context_engine.dashboard._page import PAGE_HTML
-from context_engine.indexer.pipeline import run_indexing
+from context_engine.indexer.pipeline import PathOutsideProjectError, run_indexing
 from context_engine.storage.local_backend import LocalBackend
+
+# Mutating HTTP methods require a same-origin browser request OR a non-browser
+# client (Sec-Fetch-Site absent). This blocks CSRF from a malicious local page
+# without breaking the dashboard's own fetch() calls or curl/tests.
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 class ReindexRequest(BaseModel):
@@ -35,6 +41,17 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
     storage_base = Path(config.storage_path) / project_name
 
     app = FastAPI(title="CCE Dashboard", docs_url=None, redoc_url=None)
+
+    @app.middleware("http")
+    async def csrf_protect(request: Request, call_next):
+        if request.method in _MUTATING_METHODS:
+            sfs = request.headers.get("sec-fetch-site")
+            if sfs is not None and sfs != "same-origin":
+                return JSONResponse(
+                    {"error": "cross-origin requests not allowed"},
+                    status_code=403,
+                )
+        return await call_next(request)
 
     backend = LocalBackend(base_path=str(storage_base))
 
@@ -165,9 +182,12 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
             "errors": result.errors,
         }
 
-    @app.post("/api/reindex/{file_path:path}")
-    async def reindex_file(file_path: str) -> dict:
-        result = await run_indexing(config, project_dir, target_path=file_path)
+    @app.post("/api/reindex/{file_path:path}", response_model=None)
+    async def reindex_file(file_path: str) -> dict | JSONResponse:
+        try:
+            result = await run_indexing(config, project_dir, target_path=file_path)
+        except PathOutsideProjectError:
+            return JSONResponse({"error": "invalid file_path"}, status_code=400)
         return {
             "total_chunks": result.total_chunks,
             "indexed_files": result.indexed_files,
@@ -185,10 +205,16 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
         ))
         return {"ok": True}
 
-    @app.delete("/api/files/{file_path:path}")
-    async def delete_file(file_path: str) -> dict:
-        await backend.delete_by_file(file_path)
+    @app.delete("/api/files/{file_path:path}", response_model=None)
+    async def delete_file(file_path: str) -> dict | JSONResponse:
+        # Reject absolute paths and traversal — the manifest stores project-relative
+        # paths, so anything else is either an attacker probe or a bug.
+        if file_path.startswith("/") or ".." in Path(file_path).parts:
+            return JSONResponse({"error": "invalid file_path"}, status_code=400)
         manifest = _read_manifest()
+        if file_path not in manifest:
+            return JSONResponse({"error": "file not indexed"}, status_code=404)
+        await backend.delete_by_file(file_path)
         manifest.pop(file_path, None)
         (storage_base / "manifest.json").write_text(json.dumps(manifest))
         return {"ok": True, "deleted": file_path}
@@ -208,10 +234,13 @@ def create_app(config: Config, project_dir: Path) -> FastAPI:
             "manifest": _read_manifest(),
             "sessions": _read_sessions(),
         }
+        safe_name = quote(project_name, safe="")
         return Response(
             content=json.dumps(payload, indent=2),
             media_type="application/json",
-            headers={"Content-Disposition": f"attachment; filename={project_name}-cce-export.json"},
+            headers={
+                "Content-Disposition": f"attachment; filename={safe_name}-cce-export.json"
+            },
         )
 
     return app

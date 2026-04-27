@@ -25,6 +25,32 @@ from context_engine.storage.local_backend import LocalBackend
 
 log = logging.getLogger(__name__)
 
+
+class PathOutsideProjectError(ValueError):
+    """Raised when a target_path resolves outside the project root."""
+
+
+def _resolve_within(project_dir: Path, target: str | Path) -> Path:
+    """Resolve `target` relative to project_dir and assert it stays inside.
+
+    Prevents path traversal via `target_path="../../etc/passwd"` from any caller
+    that hands user input to `run_indexing`. Always call this before reading or
+    walking `target` against the filesystem.
+    """
+    p = Path(target)
+    if not p.is_absolute():
+        p = project_dir / p
+    resolved = p.resolve()
+    project_resolved = project_dir.resolve()
+    try:
+        resolved.relative_to(project_resolved)
+    except ValueError as exc:
+        raise PathOutsideProjectError(
+            f"target path escapes project directory: {target}"
+        ) from exc
+    return resolved
+
+
 # Serialise indexing runs so a watcher-triggered re-index can't race a manual
 # `cce index` or MCP `reindex` tool call on the same LanceDB table.
 _PIPELINE_LOCKS: dict[str, asyncio.Lock] = {}
@@ -67,7 +93,7 @@ _LANGUAGE_MAP = {
     ".js": "javascript",
     ".ts": "typescript",
     ".jsx": "javascript",
-    ".tsx": "typescript",
+    ".tsx": "tsx",
     ".md": "markdown",
     ".php": "php",
     ".html": "html",
@@ -226,9 +252,7 @@ async def _run_indexing_locked(
 
     # Determine the set of files to scan.
     if target_path:
-        target = Path(target_path)
-        if not target.is_absolute():
-            target = project_dir / target
+        target = _resolve_within(project_dir, target_path)
         if target.is_file():
             file_iter = [target] if target.suffix not in _SKIP_EXTENSIONS else []
         elif target.is_dir():

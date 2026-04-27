@@ -418,17 +418,22 @@ class ContextEngineMCP:
         return [TextContent(type="text", text=body)]
 
     def _estimate_full_file_tokens(self, file_paths: set[str]) -> int:
-        """Estimate token count if the user had read the full source files."""
+        """Estimate token count if the user had read the full source files.
+
+        Uses file size (~4 bytes per token, the typical English/code ratio
+        produced by `_count_tokens` heuristic) rather than reading every file
+        into memory — that ran on every search and could load hundreds of MB.
+        """
         from pathlib import Path as _Path
         total = 0
         project_dir = _Path.cwd()
         for fp in file_paths:
             full_path = project_dir / fp
-            if full_path.exists():
-                try:
-                    total += _count_tokens(full_path.read_text(errors="ignore"))
-                except OSError:
-                    pass
+            try:
+                size = full_path.stat().st_size
+            except OSError:
+                continue
+            total += max(1, size // _CHARS_PER_TOKEN)
         return total
 
     async def _handle_expand_chunk(self, args):
