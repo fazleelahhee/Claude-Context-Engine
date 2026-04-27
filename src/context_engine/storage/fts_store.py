@@ -6,6 +6,7 @@ import sqlite3
 from threading import RLock
 
 from context_engine.models import Chunk
+from context_engine.utils import SQLITE_PARAM_BATCH, chunked
 
 log = logging.getLogger(__name__)
 
@@ -77,14 +78,17 @@ class FTSStore:
             self._conn.commit()
 
     def _delete_files_sync(self, file_paths: list[str]) -> None:
+        # Chunked so a project-wide prune of thousands of removed files
+        # can't exceed SQLite's bound-parameter limit.
         if not file_paths:
             return
-        placeholders = ",".join("?" * len(file_paths))
         with self._lock:
-            self._conn.execute(
-                f"DELETE FROM chunks_fts WHERE file_path IN ({placeholders})",
-                file_paths,
-            )
+            for batch in chunked(file_paths, SQLITE_PARAM_BATCH):
+                placeholders = ",".join("?" * len(batch))
+                self._conn.execute(
+                    f"DELETE FROM chunks_fts WHERE file_path IN ({placeholders})",
+                    batch,
+                )
             self._conn.commit()
 
     async def ingest(self, chunks: list[Chunk]) -> None:

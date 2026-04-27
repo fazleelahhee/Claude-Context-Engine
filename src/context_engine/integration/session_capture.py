@@ -237,7 +237,7 @@ class SessionCapture:
             "decisions_log": str(log_path),
         }
 
-    def _load_consolidated_decisions(self) -> list[dict]:
+    def load_consolidated_decisions(self) -> list[dict]:
         """Read decisions_log.json (the consolidated archive). Returns []
         when absent or unreadable — never raises."""
         log_path = Path(self._sessions_dir) / _DECISIONS_LOG_NAME
@@ -260,12 +260,17 @@ class SessionCapture:
         decisions: list[tuple[float, str]] = []
 
         # Active in-memory sessions first (may not yet be flushed to disk).
-        # Snapshot under the lock so a concurrent record_decision can't mutate
-        # the list while we're iterating it.
+        # `dict(session)` is only a shallow copy: session["decisions"] would
+        # still alias the live list, so a concurrent record_decision could
+        # mutate it while we iterate. Copy the nested decisions list under
+        # the lock too — it's small (just dicts with primitives).
         with self._lock:
-            active_snapshot = [dict(s) for s in self._active.values()]
+            active_snapshot = [
+                {**s, "decisions": list(s.get("decisions", []))}
+                for s in self._active.values()
+            ]
         for session in active_snapshot:
-            for d in session.get("decisions", []):
+            for d in session["decisions"]:
                 ts = d.get("timestamp", 0.0)
                 text = (
                     f"[decision] {d.get('decision', '')} — {d.get('reason', '')}"
@@ -284,7 +289,7 @@ class SessionCapture:
         # writes decisions there before deleting the source files, so without
         # this step a recall on a long-lived project would forget anything
         # past the most-recent session_limit files.
-        for d in self._load_consolidated_decisions():
+        for d in self.load_consolidated_decisions():
             ts = d.get("timestamp", 0.0)
             text = (
                 f"[decision] {d.get('decision', '')} — {d.get('reason', '')}"

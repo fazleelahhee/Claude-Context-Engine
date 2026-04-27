@@ -18,7 +18,7 @@ All commands use colorful, structured output with line-by-line animation on TTY:
 Running `cce` with no subcommand shows a welcome banner with project status at a glance:
 
 ```
-╭─────────────────────────── Code Context Engine v0.2.9 ────────────────────────────╮
+╭────────────────────────────── Code Context Engine ────────────────────────────────╮
 │                                                                                     │
 │                                     ⬡  C C E  ⬡                                     │
 │                                                                                     │

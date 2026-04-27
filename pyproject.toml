@@ -42,9 +42,14 @@ Repository = "https://github.com/fazleelahhee/Claude-Context-Engine"
 Issues = "https://github.com/fazleelahhee/Claude-Context-Engine/issues"
 
 [project.optional-dependencies]
+# Versions kept in sync with [dependency-groups].dev below — both groups
+# install the same dev tools, just via different mechanisms (PEP 621 vs
+# PEP 735), so divergent floors here would yield different environments
+# depending on whether you ran `pip install -e .[dev]` or `uv sync --group
+# dev`. Suite assumes pytest 9 / pytest-asyncio 1.3 features.
 dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.23",
+    "pytest>=9.0.3",
+    "pytest-asyncio>=1.3.0",
     "pytest-cov>=5.0",
     "pytest-xdist>=3.5",
 ]

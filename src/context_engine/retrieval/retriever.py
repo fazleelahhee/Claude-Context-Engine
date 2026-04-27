@@ -5,7 +5,7 @@ from context_engine.models import Chunk
 from context_engine.storage.backend import StorageBackend
 from context_engine.indexer.embedder import Embedder
 from context_engine.retrieval.confidence import ConfidenceScorer
-from context_engine.retrieval.query_parser import ParsedQuery, QueryIntent, QueryParser
+from context_engine.retrieval.query_parser import QueryIntent, QueryParser
 
 log = logging.getLogger(__name__)
 

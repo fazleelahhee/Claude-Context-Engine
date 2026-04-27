@@ -445,10 +445,15 @@ def _ensure_claude_md(project_dir: Path) -> None:
     Without the upgrade path, projects installed with v0.2.x kept the old
     instructions forever — Claude never learned to call record_decision /
     session_recall and the cross-session memory loop stayed broken.
+
+    Writes go through atomic_write_text so an interrupted upgrade can't
+    leave the user with a truncated CLAUDE.md.
     """
+    from context_engine.utils import atomic_write_text
+
     claude_md = project_dir / "CLAUDE.md"
     if not claude_md.exists():
-        claude_md.write_text(_CCE_CLAUDE_MD_BLOCK)
+        atomic_write_text(claude_md, _CCE_CLAUDE_MD_BLOCK)
         _ok("CLAUDE.md created with CCE instructions")
         return
 
@@ -464,13 +469,13 @@ def _ensure_claude_md(project_dir: Path) -> None:
     old_block = _extract_existing_cce_block(existing)
     if old_block is not None:
         new_content = existing.replace(old_block, _CCE_CLAUDE_MD_BLOCK.rstrip(), 1)
-        claude_md.write_text(new_content)
+        atomic_write_text(claude_md, new_content)
         _ok("CLAUDE.md upgraded to current CCE instructions")
         return
 
     # No CCE block detected — append.
     new_content = existing.rstrip() + "\n\n" + _CCE_CLAUDE_MD_BLOCK
-    claude_md.write_text(new_content)
+    atomic_write_text(claude_md, new_content)
     _ok("CLAUDE.md updated with CCE instructions")
 
 
@@ -1413,6 +1418,7 @@ def uninstall() -> None:
     # the legacy "## Context Engine (CCE)" heading-only form, AND the older
     # CCE:BEGIN/CCE:END marker pair — keeping uninstall in lockstep with init
     # so the routing instructions don't get left behind.
+    from context_engine.utils import atomic_write_text as _atomic_write
     claude_md = project_dir / "CLAUDE.md"
     if claude_md.exists():
         content = claude_md.read_text()
@@ -1422,7 +1428,7 @@ def uninstall() -> None:
         if block is not None:
             new_content = content.replace(block, "", 1).strip()
             if new_content:
-                claude_md.write_text(new_content + "\n")
+                _atomic_write(claude_md, new_content + "\n")
             else:
                 claude_md.unlink()
             lines.append(f"    {CROSS} {warn('Removed')} CCE block from CLAUDE.md")
@@ -1435,7 +1441,7 @@ def uninstall() -> None:
             )
             new_content = (content[:start] + content[end:]).strip()
             if new_content:
-                claude_md.write_text(new_content + "\n")
+                _atomic_write(claude_md, new_content + "\n")
             else:
                 claude_md.unlink()
             lines.append(f"    {CROSS} {warn('Removed')} CCE block from CLAUDE.md")

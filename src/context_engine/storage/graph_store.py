@@ -6,6 +6,7 @@ import sqlite3
 from threading import RLock
 
 from context_engine.models import GraphNode, GraphEdge, NodeType, EdgeType
+from context_engine.utils import SQLITE_PARAM_BATCH, chunked
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS nodes (
@@ -155,27 +156,39 @@ class GraphStore:
         self._sync_delete_by_files([file_path])
 
     def _sync_delete_by_files(self, file_paths: list[str]) -> None:
+        # Both halves (file_path SELECT and node_id DELETE) are chunked so a
+        # full-project prune can't trip SQLite's bound-parameter limit. The
+        # edge delete uses ids twice (source_id + target_id) so the per-batch
+        # placeholder count is 2× len(batch); we keep it half of
+        # SQLITE_PARAM_BATCH to stay safe under 999 even on old builds.
         if not file_paths:
             return
         with self._lock:
             cur = self._conn.cursor()
-            file_placeholders = ",".join("?" * len(file_paths))
-            cur.execute(
-                f"SELECT id FROM nodes WHERE file_path IN ({file_placeholders})",
-                file_paths,
-            )
-            node_ids = [row[0] for row in cur.fetchall()]
+            node_ids: list[str] = []
+            for batch in chunked(file_paths, SQLITE_PARAM_BATCH):
+                file_placeholders = ",".join("?" * len(batch))
+                cur.execute(
+                    f"SELECT id FROM nodes WHERE file_path IN ({file_placeholders})",
+                    batch,
+                )
+                node_ids.extend(row[0] for row in cur.fetchall())
+
             if node_ids:
-                id_placeholders = ",".join("?" * len(node_ids))
-                cur.execute(
-                    f"DELETE FROM edges WHERE source_id IN ({id_placeholders}) "
-                    f"OR target_id IN ({id_placeholders})",
-                    node_ids + node_ids,
-                )
-                cur.execute(
-                    f"DELETE FROM nodes WHERE id IN ({id_placeholders})",
-                    node_ids,
-                )
+                edge_batch = max(1, SQLITE_PARAM_BATCH // 2)
+                for batch in chunked(node_ids, edge_batch):
+                    id_placeholders = ",".join("?" * len(batch))
+                    cur.execute(
+                        f"DELETE FROM edges WHERE source_id IN ({id_placeholders}) "
+                        f"OR target_id IN ({id_placeholders})",
+                        list(batch) + list(batch),
+                    )
+                for batch in chunked(node_ids, SQLITE_PARAM_BATCH):
+                    id_placeholders = ",".join("?" * len(batch))
+                    cur.execute(
+                        f"DELETE FROM nodes WHERE id IN ({id_placeholders})",
+                        batch,
+                    )
             self._conn.commit()
 
     # ------------------------------------------------------------------

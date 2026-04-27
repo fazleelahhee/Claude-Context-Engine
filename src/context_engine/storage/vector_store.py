@@ -14,6 +14,7 @@ import struct
 from threading import RLock
 
 from context_engine.models import Chunk, ChunkType
+from context_engine.utils import SQLITE_PARAM_BATCH, chunked
 
 log = logging.getLogger(__name__)
 
@@ -236,29 +237,35 @@ class VectorStore:
     async def delete_by_files(self, file_paths: list[str]) -> None:
         """Batched delete. Pipeline calls this once per re-index batch instead
         of awaiting per-file deletes serially, which previously bottlenecked
-        the indexing loop on small SQLite roundtrips."""
+        the indexing loop on small SQLite roundtrips.
+
+        File paths are chunked under SQLITE_PARAM_BATCH so a project-wide
+        prune touching thousands of removed files can't trip SQLite's
+        bound-parameter limit (`too many SQL variables`).
+        """
         if not file_paths:
             return
         with self._lock:
-            placeholders = ",".join("?" * len(file_paths))
-            if self._dim is not None:
+            for batch in chunked(file_paths, SQLITE_PARAM_BATCH):
+                placeholders = ",".join("?" * len(batch))
+                if self._dim is not None:
+                    self._conn.execute(
+                        f"DELETE FROM chunks_vec "
+                        f"WHERE rowid IN (SELECT rowid FROM chunks WHERE file_path IN ({placeholders}))",
+                        batch,
+                    )
+                # Drop cached summaries for any chunks belonging to these
+                # files before the chunks themselves go away — otherwise
+                # stale summaries would survive a re-index.
                 self._conn.execute(
-                    f"DELETE FROM chunks_vec "
-                    f"WHERE rowid IN (SELECT rowid FROM chunks WHERE file_path IN ({placeholders}))",
-                    file_paths,
+                    f"DELETE FROM chunk_compressions "
+                    f"WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path IN ({placeholders}))",
+                    batch,
                 )
-            # Drop cached summaries for any chunks belonging to these files
-            # before the chunks themselves go away — otherwise stale summaries
-            # would survive a re-index.
-            self._conn.execute(
-                f"DELETE FROM chunk_compressions "
-                f"WHERE chunk_id IN (SELECT id FROM chunks WHERE file_path IN ({placeholders}))",
-                file_paths,
-            )
-            self._conn.execute(
-                f"DELETE FROM chunks WHERE file_path IN ({placeholders})",
-                file_paths,
-            )
+                self._conn.execute(
+                    f"DELETE FROM chunks WHERE file_path IN ({placeholders})",
+                    batch,
+                )
             self._conn.commit()
 
     def get_cached_compression(self, chunk_id: str, level: str) -> str | None:
