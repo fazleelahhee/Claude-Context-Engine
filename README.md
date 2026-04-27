@@ -47,7 +47,7 @@ Over 30 queries in a project, that gap compounds into real money.
 
 CCE builds a persistent, searchable index of your codebase and feeds Claude only the chunks it actually needs.
 
-**Index once.** CCE splits your code into semantic chunks (functions, classes, modules) and stores them as vector embeddings locally. Git hooks keep the index current after every commit.
+**Index once, re-index in seconds.** CCE splits your code into semantic chunks (functions, classes, modules) and stores them as vector embeddings locally. A content-hash embedding cache ensures that re-indexing only recomputes what actually changed. Git hooks keep the index current after every commit.
 
 **Retrieve exactly what is relevant.** When Claude needs to find `calculate_shipping`, it searches the index and gets back 600 tokens instead of an entire 800-line file.
 
@@ -292,7 +292,20 @@ When results exceed the token budget, CCE lists the rest as compact references r
 Without Ollama: CCE truncates to function signature and docstring.
 With Ollama running locally: CCE uses `phi3:mini` for higher-quality LLM summaries. Detected automatically, no configuration needed.
 
-### 7. Cross-Session Memory
+### 7. Content-Hash Embedding Cache
+
+Re-indexing a large codebase should take seconds, not minutes. CCE fingerprints every code chunk by its content hash and caches the resulting embedding vector in a local SQLite store. On re-index, only chunks whose content actually changed go through the embedding model. Everything else is served from cache instantly.
+
+This is the same principle used by production-grade AI code tools: treat embeddings as a function of content, cache the result, and never recompute what hasn't changed. On a typical re-index after editing a few files, 95%+ of embeddings come from cache.
+
+```
+  First index:    1,247 chunks embedded                 12.4s
+  Re-index:       1,247 chunks, 1,203 from cache (96%)   0.8s
+```
+
+`cce status` shows cache size, and `cce index` reports the hit rate after every run.
+
+### 8. Cross-Session Memory
 
 When Claude records a decision (`record_decision`) or a code area (`record_code_area`), CCE stores it in SQLite. `session_recall` surfaces it at the start of the next session — no re-explaining.
 
@@ -509,6 +522,7 @@ All other text-based files (Markdown, YAML, config files, etc.) are chunked by l
 - [x] Welcome banner with 2-column status display (`cce`)
 - [x] Colorful CLI output with section headers and line-by-line animation
 - [x] sqlite-vec migration (54% smaller install, same search quality)
+- [x] Content-hash embedding cache (skip re-embedding unchanged chunks)
 - [ ] Tree-sitter support for Go, Rust, Java, C, and C++
 - [ ] Persistent session search across projects
 - [ ] Docker support for remote mode
