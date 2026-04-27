@@ -121,7 +121,7 @@ cce init
 ### 3. Run `cce` to verify
 
 ```
-╭─────────────────────────── Claude Context Engine v0.2.9 ────────────────────────────╮
+╭─────────────────────────── Claude Context Engine v0.3.0 ────────────────────────────╮
 │                                                                                     │
 │                                     ⬡  C C E  ⬡                                     │
 │                                                                                     │
@@ -141,7 +141,7 @@ cce init
 
 ### 4. Restart Claude Code
 
-Once restarted, Claude can call `context_search` and eight other MCP tools automatically. No setup needed per session.
+Once restarted, Claude can call `context_search` and the eight companion MCP tools automatically (nine in total). No setup needed per session.
 
 ---
 

@@ -198,9 +198,19 @@ def _iter_project_files(
     yield from walk(root)
 
 
+# Skip any single file larger than this — protects the indexer from OOM on
+# accidentally-committed log dumps, generated fixtures, vendored bundles, etc.
+# 2 MB easily covers normal source files (the largest module in CPython's
+# stdlib is ~250 KB) while ruling out the kind of file you'd never want in
+# a semantic index anyway.
+_MAX_FILE_BYTES = 2 * 1024 * 1024
+
+
 def _safe_read(file_path: Path) -> str | None:
-    """Read file as UTF-8 text; return None for binary or unreadable files."""
+    """Read file as UTF-8 text; return None for binary, oversized, or unreadable files."""
     try:
+        if file_path.stat().st_size > _MAX_FILE_BYTES:
+            return None
         return file_path.read_text(encoding="utf-8", errors="strict")
     except (UnicodeDecodeError, OSError):
         return None
